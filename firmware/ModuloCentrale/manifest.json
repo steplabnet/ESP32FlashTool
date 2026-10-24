@@ -1,0 +1,43 @@
+{
+  "name": "Centrale Light",
+  "chip": "esp32",
+  "version": "MMC.261019.149",
+  "prepared": "2026-10-23T17:53:22",
+  "images": [
+    {
+      "offset": "0x1000",
+      "file": "bootloader.bin",
+      "role": "bootloader",
+      "size": 17536,
+      "sha256": "3d234a7471f67b013686dabd4dee7c1fa915c9928463616a94bc9297acf1abf8"
+    },
+    {
+      "offset": "0x8000",
+      "file": "partitions.bin",
+      "role": "partitions",
+      "size": 3072,
+      "sha256": "148b959cbff1c38aa8e1d5c0ba9d612c54997b945e56a63f41223eef650653a1"
+    },
+    {
+      "offset": "0xe000",
+      "file": "boot_app0.bin",
+      "role": "boot_app0",
+      "size": 8192,
+      "sha256": "f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0"
+    },
+    {
+      "offset": "0x10000",
+      "file": "firmware.bin",
+      "role": "app",
+      "size": 1258368,
+      "sha256": "38e046dfbd3b2a8e50094884c8806b0c4af2c9ca357b2b82c18d790c320091bf"
+    },
+    {
+      "offset": "0x290000",
+      "file": "littlefs.bin",
+      "role": "filesystem",
+      "size": 1441792,
+      "sha256": "26141cf5241028a6512449a51a18768a8f4d5a0b70e21d73d594123167b01743"
+    }
+  ]
+}

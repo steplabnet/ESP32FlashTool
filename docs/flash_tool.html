@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Istruzioni Flash Tool</title>
+<style>
+  :root {
+    --bg: #fbfaf8; --surface: #ffffff; --text: #1f2328; --muted: #5d6470;
+    --line: #e3e0da; --accent: #1f6f78; --accent-soft: #e4f1f2;
+    --warn: #8a5a00; --warn-soft: #fbf1dc; --code: #f2f0ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181b; --surface: #1e2125; --text: #e6e6e3; --muted: #a2a8b0;
+      --line: #33373d; --accent: #6cc3cc; --accent-soft: #1d3436;
+      --warn: #f0c060; --warn-soft: #3a2f17; --code: #2a2e33;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 20px; margin-bottom: 8px; }
+  h1 { font-size: 1.9rem; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .lead { color: var(--muted); margin: 0; }
+  nav { margin: 20px 0 8px; display: flex; flex-wrap: wrap; gap: 8px; }
+  nav a {
+    font-size: 0.9rem; text-decoration: none;
+    border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; background: var(--surface);
+  }
+  nav a:hover { border-color: var(--accent); }
+  h2 { font-size: 1.35rem; margin: 44px 0 10px; padding-top: 8px; }
+  h3 { font-size: 1.05rem; margin: 24px 0 6px; }
+  p, li { max-width: 72ch; }
+  ol, ul { padding-left: 1.4em; }
+  li { margin: 4px 0; }
+  code, kbd {
+    font-family: Consolas, "Cascadia Mono", monospace; font-size: 0.9em;
+    background: var(--code); border-radius: 4px; padding: 1px 5px;
+  }
+  kbd { border: 1px solid var(--line); }
+  .ui { font-weight: 600; }
+  .note, .warn {
+    border-radius: 8px; padding: 12px 16px; margin: 16px 0;
+    border-left: 4px solid var(--accent); background: var(--accent-soft);
+  }
+  .warn { border-left-color: var(--warn); background: var(--warn-soft); }
+  .note p, .warn p { margin: 4px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.95rem; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; }
+  .table-scroll { overflow-x: auto; }
+  footer { margin-top: 48px; color: var(--muted); font-size: 0.85rem; border-top: 1px solid var(--line); padding-top: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>ST ESP32 Flash Tool</h1>
+  <p class="lead">Come caricare il firmware sulle schede ESP32 con
+  <code>ST_ESP32_flash_tool.exe</code>.</p>
+  <nav>
+    <a href="#requisiti">Requisiti</a>
+    <a href="#caricare">Caricare il firmware</a>
+    <a href="#modalita">Modalità</a>
+    <a href="#boot">BOOT + RESET</a>
+    <a href="#problemi">Problemi</a>
+    <a href="#file">Dove sono i file</a>
+  </nav>
+</header>
+
+<p>Il programma scarica il firmware dal server e lo carica sulla scheda collegata via USB.
+È un file singolo: non richiede Python né installazione e si può copiare su qualsiasi PC
+Windows. L'elenco dei firmware disponibili è definito sul server con il
+<a href="manifest_creator.html">Manifest Creator</a>.</p>
+
+<h2 id="requisiti">Requisiti</h2>
+<ul>
+  <li>Windows 10 o 11.</li>
+  <li>Il driver USB-seriale della scheda: <strong>CP210x</strong> (Silicon Labs),
+  <strong>CH340/CH9102</strong> (WCH) o <strong>FTDI</strong>. Va installato a parte, una volta sola.
+  Se la scheda non compare tra le porte COM, di solito manca il driver.</li>
+  <li>Un cavo USB che trasporti dati (alcuni cavi servono solo per la ricarica).</li>
+  <li>Accesso al server firmware (predefinito: <code>http://100.42.178.156/init</code>).</li>
+</ul>
+
+<h2 id="caricare">Caricare il firmware</h2>
+<ol>
+  <li><strong>Collega la scheda</strong> al PC e avvia <code>ST_ESP32_flash_tool.exe</code>.</li>
+  <li><strong>Server</strong>: l'indirizzo è già compilato. All'avvio il programma legge l'elenco dei
+  firmware disponibili; per rileggerlo, o dopo aver cambiato indirizzo, premi
+  <span class="ui">Carica elenco</span>. Un indirizzo diverso da quello predefinito viene
+  ricordato.</li>
+  <li><strong>Porta COM</strong>: il programma propone da solo la porta più probabile; se sulla
+  porta arrivano dati dalla scheda, la seleziona automaticamente. Se hai collegato la scheda
+  dopo l'avvio, premi <span class="ui">Aggiorna</span>.</li>
+  <li><strong>Chip</strong>: scegli il modello di ESP32, oppure premi
+  <span class="ui">Rileva chip</span> per leggerlo dalla scheda. Sotto l'elenco compaiono il
+  modello esatto, la memoria flash e le caratteristiche (es. <em>ESP32-D0WD-V3 · 4MB flash ·
+  Wi-Fi, BT</em>). Dopo il rilevamento la scheda si riavvia normalmente. L'elenco mostra solo
+  i chip per cui sul server c'è un firmware.</li>
+  <li><strong>Scheda</strong>: scegli il firmware. Ogni voce indica tipo di scheda, prodotto e
+  versione, ad esempio <code>esp32dev — Modulo Pompa (MP.26.10.23.bx)</code>. Nel registro in
+  basso compaiono la data di preparazione e i file del firmware scelto.</li>
+  <li><strong>Velocità</strong>: lascia <code>460800</code>. Usa <code>115200</code> solo se il
+  caricamento si interrompe.</li>
+  <li><strong>Modalità</strong>: scegli tra aggiornamento e installazione completa
+  (<a href="#modalita">vedi sotto</a>).</li>
+  <li>Premi <span class="ui">Carica firmware</span> e attendi il messaggio
+  <em>Firmware caricato correttamente</em>. Alla fine la scheda si riavvia da sola.</li>
+</ol>
+<div class="note">
+  <p>Chip, scheda e velocità vengono ricordati e riproposti all'avvio successivo.
+  Se hai rilevato il chip e poi scegli un firmware per un chip diverso, il programma blocca il
+  caricamento e ti avvisa.</p>
+</div>
+
+<h2 id="modalita">Aggiornamento o installazione completa?</h2>
+<div class="table-scroll">
+<table>
+  <tr><th>Modalità</th><th>Cosa fa</th><th>Quando usarla</th></tr>
+  <tr>
+    <td><strong>Aggiornamento firmware</strong></td>
+    <td>Scrive solo il programma (bootloader, partizioni, applicazione). Configurazione, WiFi
+    e file salvati sulla scheda restano.</td>
+    <td>Schede già installate che devono passare a una versione nuova.</td>
+  </tr>
+  <tr>
+    <td><strong>Installazione completa</strong><br>(predefinita)</td>
+    <td>Cancella tutta la memoria e scrive programma e filesystem (pagine web e file
+    di <code>data/</code>). Chiede conferma prima di procedere.</td>
+    <td>Schede nuove, oppure schede da riportare allo stato di fabbrica.</td>
+  </tr>
+</table>
+</div>
+<div class="warn">
+  <p><strong>Attenzione:</strong> l'installazione completa cancella configurazione e credenziali
+  WiFi della scheda.</p>
+</div>
+
+<h2 id="boot">Se la scheda non risponde: BOOT + RESET</h2>
+<p>Per essere programmato l'ESP32 deve entrare in <em>modalità programmazione</em>. Molte schede
+ci entrano da sole; altre (ad esempio quelle collegate con un adattatore che non comanda i pin
+EN e IO0) vanno avviate a mano. In quel caso compare l'errore
+<code>Failed to connect … No serial data received</code>.</p>
+<ol>
+  <li>Tieni premuto il pulsante <kbd>BOOT</kbd> (IO0).</li>
+  <li>Premi e rilascia <kbd>RESET</kbd> (EN).</li>
+  <li>Rilascia <kbd>BOOT</kbd>.</li>
+  <li>Premi subito <span class="ui">Carica firmware</span> (o <span class="ui">Rileva chip</span>).</li>
+</ol>
+<p>Se non funziona ancora, controlla che la porta COM sia quella giusta e prova la velocità
+<code>115200</code>.</p>
+
+<h2 id="problemi">Problemi frequenti</h2>
+<div class="table-scroll">
+<table>
+  <tr><th>Problema</th><th>Cosa fare</th></tr>
+  <tr><td>La scheda non compare tra le porte COM</td>
+      <td>Installa il driver USB-seriale (CP210x, CH340 o FTDI), prova un altro cavo, poi
+      premi <span class="ui">Aggiorna</span>.</td></tr>
+  <tr><td><code>Failed to connect</code> / <code>No serial data received</code></td>
+      <td>Usa la procedura <a href="#boot">BOOT + RESET</a> e controlla la porta.</td></tr>
+  <tr><td>Il caricamento si interrompe a metà</td>
+      <td>Imposta la velocità <code>115200</code> e riprova; evita hub USB e cavi lunghi.</td></tr>
+  <tr><td><em>Server non raggiungibile</em></td>
+      <td>Controlla la connessione e l'indirizzo del server, poi premi
+      <span class="ui">Carica elenco</span>.</td></tr>
+  <tr><td>Un chip o una scheda non compare negli elenchi</td>
+      <td>Sul server non c'è un firmware disponibile per quella combinazione: il registro in basso
+      indica le cartelle non disponibili e il motivo. Va sistemato con il
+      <a href="manifest_creator.html">Manifest Creator</a>.</td></tr>
+  <tr><td><em>Sulla COMx è collegato un …, ma il firmware scelto è per …</em></td>
+      <td>Il firmware scelto è per un altro chip: scegli la scheda giusta per il chip rilevato.</td></tr>
+  <tr><td><em>Wrong --chip argument?</em></td>
+      <td>La scheda collegata ha un chip diverso da quello scelto: premi
+      <span class="ui">Rileva chip</span> e scegli di nuovo la scheda.</td></tr>
+  <tr><td><em>checksum non valido, download corrotto</em></td>
+      <td>Il file scaricato non corrisponde al <code>manifest.json</code> del server: riprova; se si
+      ripete, la cartella sul server va ripubblicata.</td></tr>
+</table>
+</div>
+
+<h2 id="file">Dove sono i file</h2>
+<div class="table-scroll">
+<table>
+  <tr><th>Cosa</th><th>Percorso</th></tr>
+  <tr><td>Firmware scaricati (cache)</td>
+      <td><code>%LOCALAPPDATA%\ST_ESP32_flash_tool\cache\</code>, una sottocartella per ogni
+      cartella del server</td></tr>
+  <tr><td>Impostazioni (indirizzo server, chip, scheda, velocità)</td>
+      <td><code>%APPDATA%\ST_ESP32_flash_tool\config.json</code></td></tr>
+</table>
+</div>
+<p>Prima di ogni caricamento i file in cache vengono controllati con il checksum del
+<code>manifest.json</code>: se sul server sono cambiati vengono riscaricati. La cartella
+<code>cache</code> si può cancellare in qualsiasi momento.</p>
+
+<footer>ST ESP32 Flash Tool · <a href="manifest_creator.html">Istruzioni del Manifest Creator</a></footer>
+</div>
+</body>
+</html>

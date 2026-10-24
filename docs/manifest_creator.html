@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Istruzioni Manifest Creator</title>
+<style>
+  :root {
+    --bg: #fbfaf8; --surface: #ffffff; --text: #1f2328; --muted: #5d6470;
+    --line: #e3e0da; --accent: #1f6f78; --accent-soft: #e4f1f2;
+    --warn: #8a5a00; --warn-soft: #fbf1dc; --code: #f2f0ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181b; --surface: #1e2125; --text: #e6e6e3; --muted: #a2a8b0;
+      --line: #33373d; --accent: #6cc3cc; --accent-soft: #1d3436;
+      --warn: #f0c060; --warn-soft: #3a2f17; --code: #2a2e33;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 20px; margin-bottom: 8px; }
+  h1 { font-size: 1.9rem; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .lead { color: var(--muted); margin: 0; }
+  nav { margin: 20px 0 8px; display: flex; flex-wrap: wrap; gap: 8px; }
+  nav a {
+    font-size: 0.9rem; text-decoration: none;
+    border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; background: var(--surface);
+  }
+  nav a:hover { border-color: var(--accent); }
+  h2 { font-size: 1.35rem; margin: 44px 0 10px; padding-top: 8px; }
+  h3 { font-size: 1.05rem; margin: 24px 0 6px; }
+  p, li { max-width: 72ch; }
+  ol, ul { padding-left: 1.4em; }
+  li { margin: 4px 0; }
+  code, kbd {
+    font-family: Consolas, "Cascadia Mono", monospace; font-size: 0.9em;
+    background: var(--code); border-radius: 4px; padding: 1px 5px;
+  }
+  kbd { border: 1px solid var(--line); }
+  pre {
+    background: var(--code); border-radius: 8px; padding: 12px 14px;
+    overflow-x: auto; font: 0.88rem/1.5 Consolas, "Cascadia Mono", monospace;
+  }
+  .ui { font-weight: 600; }
+  .note, .warn {
+    border-radius: 8px; padding: 12px 16px; margin: 16px 0;
+    border-left: 4px solid var(--accent); background: var(--accent-soft);
+  }
+  .warn { border-left-color: var(--warn); background: var(--warn-soft); }
+  .note p, .warn p { margin: 4px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.95rem; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; }
+  .table-scroll { overflow-x: auto; }
+  footer { margin-top: 48px; color: var(--muted); font-size: 0.85rem; border-top: 1px solid var(--line); padding-top: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>ST ESP32 Manifest Creator</h1>
+  <p class="lead">Come definire, con <code>ST_ESP32_manifest_creator.exe</code>, quali chip e
+  schede sono supportati e dove si trova il firmware di ciascuno.</p>
+  <nav>
+    <a href="#catalogo">Il catalogo</a>
+    <a href="#aprire">Aprire</a>
+    <a href="#prodotti">Prodotti e schede</a>
+    <a href="#rileva">Rilevare l'ESP32</a>
+    <a href="#verifica">Verificare</a>
+    <a href="#salvare">Salvare</a>
+    <a href="#server">Pubblicare</a>
+    <a href="#preparare">Preparare il firmware</a>
+  </nav>
+</header>
+
+<p>Il programma crea il catalogo <code>index.json</code>, che il
+<a href="flash_tool.html">Flash Tool</a> legge dal server per sapere quali firmware esistono.
+È un file singolo: non richiede Python né installazione.</p>
+
+<h2 id="catalogo">Com'è fatto il catalogo</h2>
+<p>Il catalogo elenca i <strong>prodotti</strong>; per ogni prodotto, le combinazioni
+<strong>chip + tipo di scheda</strong> supportate, ognuna con la sua cartella sul server:</p>
+<pre>Prodotto (es. Modulo Pompa)
+ ├─ Chip ESP32    + tipo scheda esp32dev  →  cartella moduloPompa
+ └─ Chip ESP32-S3 + tipo scheda devkitc1  →  cartella moduloPompa_s3</pre>
+<p>Ogni cartella contiene il firmware compilato per quella combinazione. Nel Flash Tool chi
+installa sceglie il chip e poi una voce <em>tipo scheda — prodotto</em>.</p>
+
+<h2 id="aprire">Aprire un catalogo</h2>
+<ul>
+  <li><span class="ui">Apri dal server</span>: scarica il catalogo attualmente pubblicato
+  all'indirizzo indicato in <strong>Server</strong>. È il modo più sicuro per partire dalla
+  versione in uso.</li>
+  <li><span class="ui">Apri file…</span>: apre un <code>index.json</code> salvato sul PC.</li>
+  <li><span class="ui">Nuovo</span>: catalogo vuoto.</li>
+</ul>
+<p>All'avvio il programma apre da solo <code>firmware\index.json</code>, se si trova accanto al
+programma. Se ci sono modifiche non salvate, prima di aprire un altro catalogo o di chiudere
+chiede se salvarle.</p>
+
+<h2 id="prodotti">Prodotti, chip e schede</h2>
+<h3>Prodotti</h3>
+<p>Nel riquadro <strong>Prodotti</strong> usa <span class="ui">Aggiungi</span>,
+<span class="ui">Rinomina</span> (o doppio clic) ed <span class="ui">Elimina</span>. Con
+<span class="ui">▲</span> e <span class="ui">▼</span> cambi l'ordine. Il nome del prodotto è
+quello che compare nel Flash Tool.</p>
+
+<h3>Chip e schede di un prodotto</h3>
+<ol>
+  <li>Seleziona il prodotto.</li>
+  <li>Premi <span class="ui">Aggiungi</span> nel riquadro <strong>Chip e schede supportati</strong>.</li>
+  <li>Compila la finestra:
+    <ul>
+      <li><strong>Chip</strong>: il modello di ESP32.</li>
+      <li><strong>Tipo scheda</strong>: un nome libero (es. <code>esp32dev</code>); l'elenco
+      propone quelli già usati.</li>
+      <li><strong>Cartella remota</strong>: il nome della cartella sul server, relativo
+      all'indirizzo base (es. <code>moduloPompa</code>), oppure un indirizzo completo
+      (es. <code>https://server/fw/moduloPompa</code>).</li>
+    </ul>
+  </li>
+  <li>Il pulsante <span class="ui">Da cartella locale…</span> compila i campi da una cartella
+  firmware già preparata sul PC: prende il nome della cartella e il chip (e il tipo di scheda,
+  se indicato) dal suo <code>manifest.json</code>.</li>
+</ol>
+<p>Per modificare una riga fai doppio clic o premi <span class="ui">Modifica</span>.
+Lo stesso chip + tipo scheda non può comparire due volte nello stesso prodotto.</p>
+
+<h2 id="rileva">Rilevare l'ESP32 collegato</h2>
+<p>Con una scheda collegata al PC si può leggere il chip invece di sceglierlo a mano. Nel
+riquadro <strong>ESP32 collegato</strong>:</p>
+<ol>
+  <li>Scegli la <strong>Porta COM</strong> (se hai collegato la scheda dopo l'avvio, premi
+  <span class="ui">Aggiorna</span>) e premi <span class="ui">Rileva</span>.</li>
+  <li>Il chip letto viene aggiunto all'elenco <strong>Chip rilevati</strong>, con modello, flash,
+  caratteristiche e porta (es. <em>ESP32-S3 (QFN56) · 16MB flash · Wi-Fi, BLE · COM5</em>).
+  Puoi rilevare più schede una dopo l'altra: l'ultima va in cima. Dopo il rilevamento la scheda
+  si riavvia normalmente.</li>
+  <li>Seleziona un chip rilevato e premi <span class="ui">Nuova scheda</span>: si apre la finestra
+  di una nuova scheda del prodotto selezionato con quel chip già impostato. Il tipo di scheda e la
+  cartella vanno sempre indicati a mano: dal chip non si ricavano.</li>
+</ol>
+<p>L'elenco dei chip rilevati non viene salvato: riparte vuoto a ogni avvio.</p>
+
+<h3>Se la scheda non risponde: BOOT + RESET</h3>
+<p>Alcune schede non entrano da sole in modalità programmazione e il rilevamento fallisce con
+<code>No serial data received</code>. Il programma mostra allora una finestra con il pulsante
+<span class="ui">Riprova</span>:</p>
+<ol>
+  <li>Tieni premuto il pulsante <kbd>BOOT</kbd> (IO0).</li>
+  <li>Premi e rilascia <kbd>RESET</kbd> (EN).</li>
+  <li>Rilascia <kbd>BOOT</kbd>.</li>
+  <li>Premi subito <span class="ui">Riprova</span>.</li>
+</ol>
+
+<h2 id="verifica">Verificare le cartelle</h2>
+<p><span class="ui">Verifica cartelle</span> legge dal server il <code>manifest.json</code> di
+ogni cartella del catalogo e mostra l'esito nella colonna <strong>Stato</strong>:</p>
+<div class="table-scroll">
+<table>
+  <tr><th>Stato</th><th>Significato</th></tr>
+  <tr><td><code>OK versione …</code></td><td>Cartella presente e firmware per il chip giusto.</td></tr>
+  <tr><td><code>OK … (compilato per …)</code></td><td>Presente, ma compilato per un tipo di scheda con un
+  nome diverso da quello del catalogo. Controlla che sia il firmware giusto.</td></tr>
+  <tr><td><code>ERRORE il firmware è per …</code></td><td>Nella cartella c'è un firmware per un altro
+  chip: il Flash Tool non la userà.</td></tr>
+  <tr><td><code>ERRORE HTTPError 404 …</code></td><td>Cartella o <code>manifest.json</code> non
+  trovati sul server.</td></tr>
+</table>
+</div>
+<p>La verifica usa l'indirizzo scritto in <strong>Server</strong>: va fatta dopo aver copiato
+le cartelle sul server.</p>
+
+<h2 id="salvare">Salvare</h2>
+<p><span class="ui">Salva</span> o <span class="ui">Salva con nome…</span> scrivono
+<code>index.json</code>. Prima del salvataggio il programma segnala nomi mancanti, schede
+duplicate o cartelle vuote. Il titolo della finestra mostra <code>*</code> finché ci sono
+modifiche non salvate.</p>
+<div class="note">
+  <p>Il Manifest Creator <strong>non carica nulla sul server</strong>: dopo il salvataggio
+  <code>index.json</code> va copiato a mano sul server.</p>
+</div>
+
+<h2 id="server">Pubblicare sul server</h2>
+<p>Sotto l'indirizzo base del server devono esserci <code>index.json</code> e una cartella per ogni
+chip + tipo scheda:</p>
+<pre>http://100.42.178.156/init/index.json
+http://100.42.178.156/init/moduloPompa/manifest.json
+http://100.42.178.156/init/moduloPompa/firmware.bin
+http://100.42.178.156/init/moduloPompa/…
+http://100.42.178.156/init/ModuloCentrale/manifest.json
+http://100.42.178.156/init/ModuloCentrale/…</pre>
+<p>Ogni cartella contiene <code>manifest.json</code> (posizione in memoria, dimensione e
+checksum di ogni file) e i file <code>.bin</code>: bootloader, partizioni, boot_app0, firmware e,
+se presente, l'immagine del filesystem.</p>
+<div class="warn">
+  <p>Se sul server manca <code>index.json</code>, il Flash Tool usa solo le due cartelle storiche
+  <code>ModuloCentrale</code> e <code>moduloPompa</code>.</p>
+</div>
+
+<h2 id="preparare">Preparare le cartelle firmware (sviluppatori)</h2>
+<p>Le cartelle si creano dai progetti PlatformIO con lo script <code>prepare_firmware.py</code>,
+dalla cartella del progetto ESP32FlashTool:</p>
+<pre>.venv\Scripts\python prepare_firmware.py               copia i binari già compilati
+.venv\Scripts\python prepare_firmware.py --build       compila prima con PlatformIO
+.venv\Scripts\python prepare_firmware.py moduloPompa   solo un prodotto</pre>
+<p>Il risultato va in <code>firmware\&lt;cartella&gt;\</code>, pronto da copiare sul server.
+Per una nuova combinazione chip + scheda si aggiunge una voce in <code>PRODUCTS</code>
+(con il suo <code>"chip"</code>), poi la si associa al prodotto con
+<span class="ui">Da cartella locale…</span>.</p>
+<div class="warn">
+  <p>Con <code>--build</code> la compilazione della centrale incrementa il numero di versione, come
+  una normale compilazione.</p>
+</div>
+
+<footer>ST ESP32 Manifest Creator · <a href="flash_tool.html">Istruzioni del Flash Tool</a></footer>
+</div>
+</body>
+</html>
