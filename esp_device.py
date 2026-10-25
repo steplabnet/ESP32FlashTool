@@ -145,6 +145,9 @@ class QueueLogger(TemplateLogger):
         text = MARKUP_RE.sub("", sep.join(str(a) for a in args))
         if text.strip():
             self.events.put(("log", text))
+        # la cancellazione non ha avanzamento: la GUI mostra una barra animata
+        if text.startswith("Erasing"):
+            self.events.put(("erasing", None))
 
     def note(self, message):
         self.print(f"Nota: {message}")

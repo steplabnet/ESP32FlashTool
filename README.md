@@ -70,14 +70,22 @@ Chip e scheda scelti vengono riproposti all'avvio successivo.
 
 L'URL base predefinito è `http://100.42.178.156/init` (`DEFAULT_SERVER_URL`
 in `catalog.py`). Se l'utente ne inserisce un altro e preme **Carica elenco**,
-quell'URL viene salvato in `%APPDATA%\ST_ESP32_flash_tool\config.json` e riproposto
-all'avvio; tornando all'URL predefinito il valore salvato viene rimosso.
-I file scaricati sono verificati con sha256 e tenuti in
-cache in `%LOCALAPPDATA%\ST_ESP32_flash_tool\cache`.
+quell'URL viene salvato e riproposto all'avvio; tornando all'URL predefinito il
+valore salvato viene rimosso. I file scaricati sono verificati con sha256 e tenuti in cache.
+
+Impostazioni (`config.json`) e cache (`cache\`) stanno accanto all'eseguibile (o a
+`installer.py`). Se lì non si può scrivere, ad esempio in `C:\Program Files`, il programma
+usa `%APPDATA%\ST_ESP32_flash_tool\config.json` e `%LOCALAPPDATA%\ST_ESP32_flash_tool\cache`.
+Un `config.json` in `%APPDATA%` salvato dalle versioni precedenti viene letto finché non
+esiste quello accanto all'eseguibile.
 
 - **Aggiornamento firmware**: scrive bootloader, partizioni, boot_app0 e app
   (come `pio run -t upload`). Configurazione e file del dispositivo restano.
 - **Installazione completa**: cancella tutta la flash e scrive anche il filesystem (modalità predefinita).
+  In **File aggiuntivi nel filesystem** si possono scegliere file e cartelle locali: prima del
+  caricamento l'immagine del filesystem viene estratta, i file vengono aggiunti (o sostituiscono
+  quelli con lo stesso percorso) e l'immagine viene ricostruita (`fs_image.py`, con
+  `mklittlefs.exe` / `mkspiffs.exe` di PlatformIO in `tools/`, inclusi nell'eseguibile).
 
 ## Eseguibile Windows
 

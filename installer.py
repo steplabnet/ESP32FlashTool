@@ -12,8 +12,9 @@ Senza index.json vengono lette le cartelle predefinite (LEGACY_FOLDERS).
 Nella GUI si sceglie il chip (o lo si rileva dalla scheda collegata) e poi la
 scheda: ogni scheda dell'elenco è un prodotto del catalogo con la sua cartella.
 
-L'URL base viene salvato in %APPDATA%/ST_ESP32_flash_tool/config.json.
-I file scaricati sono verificati con sha256 e tenuti in cache locale.
+L'URL base e le scelte della GUI vengono salvati in config.json accanto
+all'eseguibile. I file scaricati sono verificati con sha256 e tenuti nella
+cartella cache, sempre accanto all'eseguibile.
 Il flash avviene con esptool, nello stesso processo.
 """
 
@@ -22,12 +23,14 @@ import json
 import os
 import queue
 import re
+import sys
+import tempfile
 import threading
 import tkinter as tk
 import urllib.error
 import urllib.request
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 from urllib.parse import urljoin
 
@@ -37,6 +40,7 @@ from serial.tools import list_ports
 import catalog
 from catalog import CHIPS, DEFAULT_SERVER_URL, INDEX_FILE, base_url, chip_label, clean_url, target_label
 import esp_device
+import fs_image
 from esp_device import connect_hint, guess_port, is_connect_error, port_number, port_score
 
 APP_TITLE = "ST ESP32 Flash Tool"
@@ -53,20 +57,49 @@ LEGACY_FOLDERS = {
 MODE_UPDATE = "update"
 MODE_FULL = "full"
 
+# config.json e cache dei firmware accanto all'eseguibile (o a installer.py); se lì
+# non si può scrivere, ad esempio in C:\Program Files, in %APPDATA% / %LOCALAPPDATA%.
+if getattr(sys, "frozen", False):
+    PROGRAM_DIR = Path(sys.executable).resolve().parent
+else:
+    PROGRAM_DIR = Path(__file__).resolve().parent
+CONFIG_FILE = PROGRAM_DIR / "config.json"
+CACHE_DIR = PROGRAM_DIR / "cache"
 APP_DIR = Path(os.environ.get("APPDATA", Path.home())) / "ST_ESP32_flash_tool"
-CONFIG_FILE = APP_DIR / "config.json"
-CACHE_DIR = Path(os.environ.get("LOCALAPPDATA", APP_DIR)) / "ST_ESP32_flash_tool" / "cache"
+FALLBACK_CONFIG_FILE = APP_DIR / "config.json"
+FALLBACK_CACHE_DIR = Path(os.environ.get("LOCALAPPDATA", APP_DIR)) / "ST_ESP32_flash_tool" / "cache"
+
 
 def load_config():
+    # il file in %APPDATA% vale finché non ne esiste uno accanto all'eseguibile:
+    # così le impostazioni salvate dalle versioni precedenti non si perdono
+    for path in (CONFIG_FILE, FALLBACK_CONFIG_FILE):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+    return {}
+
+
+def cache_dir():
+    """CACHE_DIR se vi si può scrivere, altrimenti FALLBACK_CACHE_DIR."""
+    probe = CACHE_DIR / ".scrittura"
     try:
-        return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        probe.write_bytes(b"")
+        probe.unlink()
+        return CACHE_DIR
+    except OSError:
+        return FALLBACK_CACHE_DIR
 
 
 def save_config(config):
-    APP_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_FILE.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    text = json.dumps(config, indent=2) + "\n"
+    try:
+        CONFIG_FILE.write_text(text, encoding="utf-8")
+    except OSError:
+        FALLBACK_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        FALLBACK_CONFIG_FILE.write_text(text, encoding="utf-8")
 
 
 def fetch(url):
@@ -162,6 +195,8 @@ class InstallerApp(tk.Tk):
         self.ports = []
         self.port_auto = True  # False quando l'utente sceglie la porta a mano
         self.busy = False
+        self.extras = []  # file e cartelle locali da aggiungere al filesystem
+        self.status_before_erase = ""  # stato da ripristinare dopo la cancellazione
 
         self.url_var = tk.StringVar(
             value=clean_url(self.config_data.get("server_url", "")) or DEFAULT_SERVER_URL)
@@ -219,25 +254,44 @@ class InstallerApp(tk.Tk):
 
         modes = ttk.LabelFrame(frame, text="Modalità", padding=8)
         modes.grid(row=6, column=0, columnspan=3, sticky="ew", pady=8)
-        ttk.Radiobutton(modes, variable=self.mode_var, value=MODE_UPDATE,
+        ttk.Radiobutton(modes, variable=self.mode_var, value=MODE_UPDATE, command=self.mode_changed,
                         text="Aggiornamento firmware — mantiene configurazione e file del dispositivo"
                         ).pack(anchor="w")
-        ttk.Radiobutton(modes, variable=self.mode_var, value=MODE_FULL,
+        ttk.Radiobutton(modes, variable=self.mode_var, value=MODE_FULL, command=self.mode_changed,
                         text="Installazione completa — cancella tutta la flash e scrive anche il filesystem (data/)"
                         ).pack(anchor="w")
 
+        extras = ttk.LabelFrame(frame, text="File aggiuntivi nel filesystem", padding=8)
+        extras.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(0, 8))
+        extras.columnconfigure(0, weight=1)
+        self.extra_list = tk.Listbox(extras, height=3, activestyle="none")
+        self.extra_list.grid(row=0, column=0, rowspan=3, sticky="nsew")
+        self.extra_buttons = []
+        for row, (text, command) in enumerate((("Aggiungi file…", self.add_extra_files),
+                                               ("Aggiungi cartella…", self.add_extra_folder),
+                                               ("Rimuovi", self.remove_extra))):
+            button = ttk.Button(extras, text=text, command=command)
+            button.grid(row=row, column=1, sticky="ew", padx=(6, 0), pady=1)
+            self.extra_buttons.append(button)
+        ttk.Label(extras, foreground="gray", wraplength=640, justify="left",
+                  text="Solo con l'installazione completa: i file vengono inseriti nel filesystem "
+                       "del firmware prima del caricamento. Un file va nella radice; di una cartella "
+                       "si copia il contenuto. Un file con lo stesso percorso sostituisce quello "
+                       "del firmware.").grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
+
         self.flash_button = ttk.Button(frame, text="Carica firmware", command=self.start_flash)
-        self.flash_button.grid(row=7, column=0, columnspan=3, sticky="ew", pady=4)
+        self.flash_button.grid(row=8, column=0, columnspan=3, sticky="ew", pady=4)
         self.flash_button.state(["disabled"])
 
         self.progress = ttk.Progressbar(frame, maximum=100)
-        self.progress.grid(row=8, column=0, columnspan=3, sticky="ew", pady=4)
+        self.progress.grid(row=9, column=0, columnspan=3, sticky="ew", pady=4)
         ttk.Label(frame, textvariable=self.status_var).grid(
-            row=9, column=0, columnspan=3, sticky="w")
+            row=10, column=0, columnspan=3, sticky="w")
 
-        self.log_text = ScrolledText(frame, height=14, state="disabled", font=("Consolas", 9))
-        self.log_text.grid(row=10, column=0, columnspan=3, sticky="nsew", pady=(8, 0))
-        frame.rowconfigure(10, weight=1)
+        self.log_text = ScrolledText(frame, height=10, state="disabled", font=("Consolas", 9))
+        self.log_text.grid(row=11, column=0, columnspan=3, sticky="nsew", pady=(8, 0))
+        frame.rowconfigure(11, weight=1)
+        self.mode_changed()
 
     def refresh_chips(self, select=None):
         """Elenco "Chip": i chip che hanno almeno un firmware disponibile."""
@@ -276,6 +330,39 @@ class InstallerApp(tk.Tk):
             self.flash_button.state(["disabled"])
         else:
             self.flash_button.state(["!disabled"])
+        self.mode_changed()
+
+    def mode_changed(self):
+        """I file aggiuntivi valgono solo con l'installazione completa."""
+        enabled = self.mode_var.get() == MODE_FULL and not self.busy
+        for button in self.extra_buttons:
+            button.state(["!disabled"] if enabled else ["disabled"])
+        self.extra_list.configure(state="normal" if enabled else "disabled")
+
+    def refresh_extras(self):
+        self.extra_list.configure(state="normal")
+        self.extra_list.delete(0, "end")
+        for source in self.extras:
+            path = Path(source)
+            self.extra_list.insert("end", f"[cartella] {path}  (contenuto)" if path.is_dir()
+                                   else f"{path.name}  —  {path.parent}")
+        self.mode_changed()
+
+    def add_extra_files(self):
+        files = filedialog.askopenfilenames(parent=self, title="File da aggiungere al filesystem")
+        self.extras += [f for f in files if f not in self.extras]
+        self.refresh_extras()
+
+    def add_extra_folder(self):
+        folder = filedialog.askdirectory(parent=self, title="Cartella da copiare nel filesystem")
+        if folder and folder not in self.extras:
+            self.extras.append(folder)
+        self.refresh_extras()
+
+    def remove_extra(self):
+        for index in reversed(self.extra_list.curselection()):
+            del self.extras[index]
+        self.refresh_extras()
 
     def chip_changed(self):
         self.config_data["chip"] = self.selected_chip()
@@ -478,16 +565,32 @@ class InstallerApp(tk.Tk):
         full = self.mode_var.get() == MODE_FULL
         manifest = target["manifest"]
         images = [img for img in manifest["images"] if full or img["role"] != "filesystem"]
+        extras = list(self.extras) if full else []
         if full:
-            if not any(img["role"] == "filesystem" for img in images):
+            fs = next((img for img in images if img["role"] == "filesystem"), None)
+            if fs is None and extras:
+                messagebox.showerror(APP_TITLE, "Questo pacchetto non contiene il filesystem: "
+                                     "i file aggiuntivi non si possono caricare.")
+                return
+            if fs is None:
                 if not messagebox.askyesno(APP_TITLE, "Questo pacchetto non contiene il "
                                            "filesystem: dopo la cancellazione le pagine web "
                                            "mancheranno. Continuare?"):
                     return
+            added = ""
+            if extras:
+                # nomi controllati subito, prima di scaricare e cancellare
+                try:
+                    files = fs_image.collect(extras)
+                    fs_image.check_names(fs_image.fs_type(fs["file"]), files)
+                except RuntimeError as e:
+                    messagebox.showerror(APP_TITLE, f"File aggiuntivi non validi:\n{e}")
+                    return
+                added = f"\n\nVerranno aggiunti {len(files)} file al filesystem."
             if not messagebox.askyesno(APP_TITLE, f"Installazione completa di {product['name']} "
                                        f"({target_label(target)}) su {port}:\n"
                                        "tutta la flash verrà cancellata, comprese "
-                                       "configurazione e WiFi.\n\nContinuare?"):
+                                       f"configurazione e WiFi.{added}\n\nContinuare?"):
                 return
 
         self.config_data["baud"] = self.baud_var.get()
@@ -499,11 +602,14 @@ class InstallerApp(tk.Tk):
         self.progress["value"] = 0
         self.status_var.set(f"Download {package['name']} {package['version']}…")
         threading.Thread(target=self.run_flash, daemon=True,
-                         args=(package, images, port, self.baud_var.get(), full)).start()
+                         args=(package, images, port, self.baud_var.get(), full, extras)).start()
 
     def download_images(self, package, images):
         """Scarica le immagini in cache (se mancanti) e ne verifica lo sha256."""
-        cache = CACHE_DIR / package["cache"]
+        root = cache_dir()
+        if root != CACHE_DIR:
+            self.events.put(("log", f"{CACHE_DIR} non scrivibile: cache in {root}"))
+        cache = root / package["cache"]
         cache.mkdir(parents=True, exist_ok=True)
         paths = []
         for img in images:
@@ -532,21 +638,34 @@ class InstallerApp(tk.Tk):
             paths.append(path)
         return paths
 
-    def run_flash(self, package, images, port, baud, full):
+    def add_extras(self, images, paths, extras, work_dir):
+        """Sostituisce in paths l'immagine filesystem con una copia che contiene extras."""
+        index = next(i for i, img in enumerate(images) if img["role"] == "filesystem")
+        self.events.put(("status", "Aggiunta dei file al filesystem…"))
+        self.events.put(("log", f"\nFile aggiunti a {images[index]['file']}:"))
+        paths[index], changes = fs_image.add_files(paths[index], extras, work_dir)
+        for rel, change in changes:
+            self.events.put(("log", f"  /{rel}  ({change})"))
+
+    def run_flash(self, package, images, port, baud, full, extras):
         try:
             paths = self.download_images(package, images)
+            # la copia modificata dell'immagine vive solo fino alla fine del caricamento
+            with tempfile.TemporaryDirectory(prefix="fs_") as work_dir:
+                if extras:
+                    self.add_extras(images, paths, extras, work_dir)
 
-            args = ["--chip", package.get("chip", "esp32"), "--port", port, "--baud", baud,
-                    "--before", "default-reset", "--after", "hard-reset", "write-flash"]
-            if full:
-                args.append("--erase-all")
-            for img, path in zip(images, paths):
-                args += [img["offset"], str(path)]
+                args = ["--chip", package.get("chip", "esp32"), "--port", port, "--baud", baud,
+                        "--before", "default-reset", "--after", "hard-reset", "write-flash"]
+                if full:
+                    args.append("--erase-all")
+                for img, path in zip(images, paths):
+                    args += [img["offset"], str(path)]
 
-            self.events.put(("status", f"Caricamento {package['name']} su {port}…"))
-            self.events.put(("progress", 0))
-            self.events.put(("log", f"\n> esptool {' '.join(args)}"))
-            esptool.main(args)
+                self.events.put(("status", f"Caricamento {package['name']} su {port}…"))
+                self.events.put(("progress", 0))
+                self.events.put(("log", f"\n> esptool {' '.join(args)}"))
+                esptool.main(args)
         except BaseException as e:  # esptool usa anche SystemExit per gli errori
             self.events.put(("done", f"{type(e).__name__}: {e}"))
         else:
@@ -559,7 +678,9 @@ class InstallerApp(tk.Tk):
                 if kind == "log":
                     self.append_log(value)
                 elif kind == "progress":
-                    self.progress["value"] = value
+                    self.set_progress(value)
+                elif kind == "erasing":
+                    self.show_erasing()
                 elif kind == "status":
                     self.status_var.set(value)
                 elif kind == "packages":
@@ -578,7 +699,23 @@ class InstallerApp(tk.Tk):
             pass
         self.after(100, self.poll_events)
 
+    def show_erasing(self):
+        """Barra animata durante la cancellazione, di cui esptool non dà l'avanzamento."""
+        if str(self.progress["mode"]) != "indeterminate":
+            self.status_before_erase = self.status_var.get()
+            self.progress.configure(mode="indeterminate")
+            self.progress.start(15)
+        self.status_var.set("Cancellazione della flash in corso (può richiedere fino a un minuto)…")
+
+    def set_progress(self, value):
+        if str(self.progress["mode"]) == "indeterminate":
+            self.progress.stop()
+            self.progress.configure(mode="determinate")
+            self.status_var.set(self.status_before_erase)
+        self.progress["value"] = value
+
     def finish_flash(self, error):
+        self.set_progress(self.progress["value"] if error else 100)
         self.set_busy(False)
         if error:
             self.status_var.set("Errore")

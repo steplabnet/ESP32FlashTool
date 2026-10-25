@@ -68,6 +68,7 @@
     <a href="#requisiti">Requisiti</a>
     <a href="#caricare">Caricare il firmware</a>
     <a href="#modalita">Modalità</a>
+    <a href="#file-aggiuntivi">File aggiuntivi</a>
     <a href="#boot">BOOT + RESET</a>
     <a href="#problemi">Problemi</a>
     <a href="#file">Dove sono i file</a>
@@ -143,6 +144,41 @@ Windows. L'elenco dei firmware disponibili è definito sul server con il
   WiFi della scheda.</p>
 </div>
 
+<h2 id="file-aggiuntivi">Aggiungere file al filesystem</h2>
+<p>Con l'installazione completa si possono caricare sulla scheda, insieme al firmware, file presi
+dal PC: ad esempio un file di configurazione già pronto o pagine web personalizzate. Il riquadro
+<strong>File aggiuntivi nel filesystem</strong> è attivo solo in questa modalità.</p>
+<ol>
+  <li>Premi <span class="ui">Aggiungi file…</span> per scegliere uno o più file: vanno nella
+  radice del filesystem (es. <code>config.json</code> → <code>/config.json</code>).</li>
+  <li>Oppure premi <span class="ui">Aggiungi cartella…</span>: viene copiato il contenuto della
+  cartella con le sue sottocartelle, come la cartella <code>data/</code> dei progetti
+  (es. <code>miacartella/img/logo.png</code> → <code>/img/logo.png</code>).</li>
+  <li>Con <span class="ui">Rimuovi</span> togli dall'elenco le voci selezionate.</li>
+  <li>Premi <span class="ui">Carica firmware</span>: la conferma indica quanti file verranno
+  aggiunti.</li>
+</ol>
+<p>Prima del caricamento il programma estrae il filesystem del firmware scaricato, aggiunge i
+file e lo ricostruisce. Un file con lo stesso percorso di uno del firmware lo
+<strong>sostituisce</strong>. Nel registro compare l'elenco dei file, ciascuno con
+<em>aggiunto</em> o <em>sostituito</em>. Il firmware sul server e la copia in cache non vengono
+modificati.</p>
+<div class="table-scroll">
+<table>
+  <tr><th>Limite</th><th>LittleFS (Centrale)</th><th>SPIFFS (Modulo Pompa)</th></tr>
+  <tr><td>Lunghezza dei nomi</td><td>32 caratteri per ogni nome di file o cartella</td>
+      <td>31 caratteri per il percorso completo, <code>/</code> iniziale compreso</td></tr>
+  <tr><td>Spazio</td><td colspan="2">I file del firmware e quelli aggiunti devono stare insieme
+      nella partizione filesystem (circa 1,4 MB)</td></tr>
+</table>
+</div>
+<p>Se un nome è troppo lungo, il programma lo segnala prima di iniziare; se i file non ci
+stanno, il caricamento si ferma prima di scrivere sulla scheda.</p>
+<div class="note">
+  <p>L'elenco dei file aggiuntivi non viene salvato: alla chiusura del programma si svuota, così
+  non si caricano per errore file pensati per un'altra scheda.</p>
+</div>
+
 <h2 id="boot">Se la scheda non risponde: BOOT + RESET</h2>
 <p>Per essere programmato l'ESP32 deve entrare in <em>modalità programmazione</em>. Molte schede
 ci entrano da sole; altre (ad esempio quelle collegate con un adattatore che non comanda i pin
@@ -191,10 +227,13 @@ EN e IO0) vanno avviate a mano. In quel caso compare l'errore
 <table>
   <tr><th>Cosa</th><th>Percorso</th></tr>
   <tr><td>Firmware scaricati (cache)</td>
-      <td><code>%LOCALAPPDATA%\ST_ESP32_flash_tool\cache\</code>, una sottocartella per ogni
-      cartella del server</td></tr>
+      <td>Cartella <code>cache\</code> accanto a <code>ST_ESP32_flash_tool.exe</code>, con una
+      sottocartella per ogni cartella del server. Se lì non si può scrivere (ad esempio con il
+      programma in <code>C:\Program Files</code>), in
+      <code>%LOCALAPPDATA%\ST_ESP32_flash_tool\cache\</code>.</td></tr>
   <tr><td>Impostazioni (indirizzo server, chip, scheda, velocità)</td>
-      <td><code>%APPDATA%\ST_ESP32_flash_tool\config.json</code></td></tr>
+      <td><code>config.json</code> accanto a <code>ST_ESP32_flash_tool.exe</code>. Se lì non si
+      può scrivere, in <code>%APPDATA%\ST_ESP32_flash_tool\config.json</code>.</td></tr>
 </table>
 </div>
 <p>Prima di ogni caricamento i file in cache vengono controllati con il checksum del
