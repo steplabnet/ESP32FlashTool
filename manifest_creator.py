@@ -200,7 +200,7 @@ class CreatorApp(tk.Tk):
         for text, command in (("Nuovo", self.new), ("Apri file…", self.open_file),
                               ("Salva", self.save), ("Salva con nome…", self.save_as)):
             ttk.Button(files, text=text, command=command,
-                       style="Primary.TButton" if text == "Salva" else "Page.TButton").pack(
+                       style="Accent.TButton" if text == "Salva" else "Page.TButton").pack(
                 side="left", padx=(0, 6))
 
         panes = ttk.PanedWindow(frame, orient="horizontal")
@@ -237,7 +237,7 @@ class CreatorApp(tk.Tk):
             self.target_tree.column(key, width=width, stretch=True)
         self.target_tree.grid(row=0, column=0, sticky="nsew")
         self.target_tree.bind("<Double-1>", lambda _e: self.edit_target())
-        self.target_tree.tag_configure("error", foreground="#dc2626")
+        self.target_tree.tag_configure("error", foreground=theme.ERROR)
         buttons = ttk.Frame(targets, style="Inner.TFrame")
         buttons.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         for text, command in (("Aggiungi", self.add_target), ("Modifica", self.edit_target),

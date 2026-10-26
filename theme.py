@@ -1,17 +1,19 @@
 """
-Stile grafico comune delle GUI, ispirato a Liquid Glass: pulsanti a capsula,
-riquadri arrotondati che galleggiano con un'ombra morbida, riflesso di luce sul
-bordo superiore, angoli concentrici, accento blu "vetro colorato".
+Stile grafico comune delle GUI, ispirato a Fluent Design (Windows 11): sfondo
+grigio chiaro come Mica, riquadri piatti con un bordo sottile e angoli da 8 px,
+controlli con angoli da 4 px e il bordo inferiore più scuro (elevazione),
+campi con la linea in basso che diventa blu col fuoco, accento blu di Windows.
 
-Tk non sa sfocare né rendere trasparenti i widget: il vetro è disegnato in
-immagini generate all'avvio (bordo, riflesso, ombra), già fuse con il colore
-su cui stanno: gli angoli devono combaciare con quello che c'è dietro. Ogni
-widget arrotondato esiste quindi in due varianti: una per l'interno dei
-riquadri (CARD) e una per lo sfondo della finestra (BG).
+Tk non sa rendere trasparenti i widget: le forme sono disegnate in immagini
+generate all'avvio, già fuse con il colore su cui stanno: gli angoli devono
+combaciare con quello che c'è dietro. Ogni widget arrotondato esiste quindi in
+due varianti: una per l'interno dei riquadri (CARD) e una per lo sfondo della
+finestra (BG).
 
 apply(root) va chiamata subito dopo aver creato la finestra principale, prima
 dei widget. Stili aggiuntivi:
-    Primary.TButton   pulsante principale, vetro colorato (fuori dai riquadri)
+    Primary.TButton   pulsante principale, colore d'accento (fuori dai riquadri)
+    Accent.TButton    come Primary, alto quanto i pulsanti normali
     Card.TFrame       riquadro (vedi card()); Inner.TFrame: gruppo di widget al suo interno
     Card.TLabel       etichetta dentro un riquadro (Card.Muted.TLabel, Card.TRadiobutton)
     Page.TButton      pulsante fuori dai riquadri (TButton è per l'interno)
@@ -32,25 +34,34 @@ from tkinter import font as tkfont, ttk
 LOGO_FILE = "logo-200x40-1.png"  # in basso a destra, vedi brand()
 WEBSITE = "www.steplab.net"
 
-BG = "#eef1f6"          # sfondo della finestra
-CARD = "#f5f7fb"        # interno dei riquadri
-TRACK = "#e3e7ee"       # binario del controllo segmentato delle schede
+BG = "#f3f3f3"          # sfondo della finestra (Mica)
+CARD = "#fbfbfb"        # interno dei riquadri
+STROKE = "#e5e5e5"      # bordo di riquadri e controlli
+STROKE_BOTTOM = "#cdcdcd"  # bordo inferiore dei controlli (elevazione)
+STRONG = "#8a8a8a"      # linea dei campi, cerchi e interruttori spenti
+DISABLED_STROKE = "#c8c8c8"
 FIELD = "#ffffff"       # campi, elenchi e tabelle
-TEXT = "#1d1d1f"
-MUTED = "#6e6e73"
-ACCENT = "#0a84ff"
-ACCENT_SOFT = "#d6e8ff"  # selezione negli elenchi
-DISABLED_TEXT = "#a1a6ae"
-LOG_BG = "#161b26"
-LOG_TEXT = "#e3e8f0"
+CONTROL = "#fdfdfd"     # pulsanti e combobox in sola lettura
+CONTROL_HOVER = "#f6f6f6"
+CONTROL_PRESSED = "#f1f1f1"
+CONTROL_DISABLED = "#f5f5f5"
+SUBTLE_HOVER = "#eaeaea"  # sotto le voci delle schede col mouse sopra
+TEXT = "#1b1b1b"
+MUTED = "#616161"
+ACCENT = "#005fb8"
+ACCENT_HOVER = "#1a6fbf"
+ACCENT_PRESSED = "#337fc6"
+ACCENT_SOFT = "#e0ebf6"  # selezione negli elenchi
+DISABLED_TEXT = "#a0a0a0"
+ERROR = "#c42b1c"
+LOG_BG = "#202020"
+LOG_TEXT = "#d6d6d6"
 
 FONT_FAMILIES = ("Segoe UI Variable Text", "Segoe UI")
-TITLE_FAMILIES = ("Segoe UI Variable Display", "Segoe UI")
 MONO_FAMILY = "Consolas"
 
-# margini lasciati attorno alle forme per l'ombra: sinistra, sopra, destra, sotto
-CARD_MARGIN = (4, 3, 4, 7)
-CARD_RADIUS = 18
+CARD_RADIUS = 8
+CONTROL_RADIUS = 4
 CARD_PAD = 16   # spazio fra il bordo del riquadro e il contenuto
 TITLE_SPACE = 30  # altezza riservata al titolo del riquadro
 
@@ -60,6 +71,10 @@ TITLE_SPACE = 30  # altezza riservata al titolo del riquadro
 def _rgb(color):
     color = color.lstrip("#")
     return tuple(int(color[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _hex(color):
+    return "#%02x%02x%02x" % tuple(int(round(v)) for v in color)
 
 
 def _mix(a, b, t):
@@ -79,22 +94,25 @@ def _sdf(px, py, x0, y0, x1, y1, r):
     return outside + min(max(qx, qy), 0) - r
 
 
-def _glass(root, w, h, radius, top, bottom=None, border=None, border_alpha=1.0,
-           border_width=1.0, highlight=0.0, shadow=0.0, margin=(0, 0, 0, 0), bg=BG,
-           dot=None, shape_width=None):
-    """Immagine w×h di una forma arrotondata fusa sullo sfondo bg.
+def _keep(root, image):
+    root._theme_images.append(image)  # senza riferimento Tk perderebbe l'immagine
+    return image
 
-    top/bottom: colori del riempimento (sfumato in verticale); highlight: forza
-    del riflesso chiaro sul bordo superiore; shadow: opacità dell'ombra sotto;
-    margin: spazio attorno alla forma; dot: (raggio, colore[, x[, ombra]]) pallino,
-    al centro se x è None;
-    shape_width: larghezza della forma se più stretta dell'immagine (a sinistra).
+
+def _shape(root, w, h, radius, fill, border=None, border_bottom=None, underline=None,
+           margin=(0, 0, 0, 0), bg=BG, dot=None, shape_width=None):
+    """Immagine w×h di una forma arrotondata a tinta unita fusa sullo sfondo bg.
+
+    border: colore del bordo da 1 px; border_bottom: colore del bordo in basso,
+    più scuro per dare elevazione; underline: (colore, spessore) linea sul lato
+    inferiore, come nei campi di testo; margin: spazio attorno alla forma
+    (sinistra, sopra, destra, sotto); dot: (raggio, colore[, x]) pallino, al
+    centro se x manca; shape_width: larghezza della forma se più stretta
+    dell'immagine (a sinistra).
     """
-    bg_c, top_c = _rgb(bg), _rgb(top)
-    bottom_c = _rgb(bottom) if bottom else top_c
+    bg_c, fill_c = _rgb(bg), _rgb(fill)
     border_c = _rgb(border) if border else None
-    shadow_c = _rgb("#1e2a44")
-    white = (255, 255, 255)
+    bottom_c = _rgb(border_bottom) if border_bottom else border_c
     ml, mt, mr, mb = margin
     x0, y0 = ml, mt
     x1 = ml + shape_width if shape_width else w - mr
@@ -104,43 +122,88 @@ def _glass(root, w, h, radius, top, bottom=None, border=None, border_alpha=1.0,
     rows = []
     for y in range(h):
         py = y + 0.5
-        t = _clamp((py - y0) / max(y1 - y0, 1))
-        fill = _mix(top_c, bottom_c, t)
         row = []
         for x in range(w):
             px = x + 0.5
             c = bg_c
-            if shadow:
-                # ombra spostata in basso e sfumata
-                ds = _sdf(px, py - 2.5, x0, y0, x1, y1, r)
-                c = _mix(c, shadow_c, shadow * _clamp(1 - (ds + 1) / 5) ** 2)
             d = _sdf(px, py, x0, y0, x1, y1, r)
             cover = _clamp(0.5 - d)
             if cover > 0:
-                color = fill
-                if highlight:
-                    # riflesso: anello interno, solo nella parte alta
-                    ring = _clamp(0.5 - (d + 1)) - _clamp(0.5 - (d + 2.5))
-                    color = _mix(color, white, highlight * ring * _clamp(1 - t * 2.2))
+                color = fill_c
                 if dot:
                     dr, dc = dot[:2]
                     dx = dot[2] if len(dot) > 2 else (x0 + x1) / 2
-                    halo = dot[3] if len(dot) > 3 else 0
-                    dd = math.hypot(px - dx, py - (y0 + y1) / 2 - halo * 2) - dr
-                    if halo:  # ombra morbida sotto il pallino
-                        color = _mix(color, shadow_c, halo * _clamp(1 - (dd + 0.5) / 3) ** 2)
                     dd = math.hypot(px - dx, py - (y0 + y1) / 2) - dr
                     color = _mix(color, _rgb(dc), _clamp(0.5 - dd))
                 if border_c:
-                    ring = cover - _clamp(0.5 - (d + border_width))
-                    color = _mix(color, border_c, border_alpha * _clamp(ring / cover))
+                    edge = _mix(border_c, bottom_c, _clamp(py - (y1 - 2)))
+                    ring = cover - _clamp(0.5 - (d + 1))
+                    color = _mix(color, edge, _clamp(ring / cover))
+                if underline:
+                    line_c, line_w = underline
+                    color = _mix(color, _rgb(line_c), _clamp(y + 1 - (y1 - line_w)))
                 c = _mix(c, color, cover)
-            row.append("#%02x%02x%02x" % tuple(int(round(v)) for v in c))
+            row.append(_hex(c))
         rows.append("{" + " ".join(row) + "}")
     image = tk.PhotoImage(master=root, width=w, height=h)
     image.put(" ".join(rows))
-    root._glass_images.append(image)  # senza riferimento Tk perderebbe l'immagine
-    return image
+    return _keep(root, image)
+
+
+def _chevron(root, color, size=12):
+    """Freccia a V delle combobox; i pixel vuoti restano trasparenti.
+
+    I bordi sfumati sono fusi su CONTROL: sui fondi chiari dei campi non si notano.
+    """
+    c, field = _rgb(color), _rgb(CONTROL)
+    (ax, ay), (bx, by), (cx, cy) = (2.5, 4.5), (6, 8), (9.5, 4.5)
+
+    def segment(px, py, x0, y0, x1, y1):
+        vx, vy = x1 - x0, y1 - y0
+        t = _clamp(((px - x0) * vx + (py - y0) * vy) / (vx * vx + vy * vy))
+        return math.hypot(px - x0 - t * vx, py - y0 - t * vy)
+
+    image = tk.PhotoImage(master=root, width=size, height=size)
+    for y in range(size):
+        for x in range(size):
+            px, py = x + 0.5, y + 0.5
+            d = min(segment(px, py, ax, ay, bx, by), segment(px, py, bx, by, cx, cy))
+            cover = _clamp(1.1 - d)
+            if cover > 0:
+                image.put(_hex(_mix(field, c, cover)), (x, y))
+    return _keep(root, image)
+
+
+STRETCH = 128  # lato minimo della parte centrale delle immagini stirate, vedi _widen()
+
+
+def _widen(image, border):
+    """Copia di image con la parte centrale ripetuta fino a STRETCH pixel.
+
+    Tk stira le immagini degli elementi ripetendo la parte centrale come una
+    piastrella: con un centro di pochi pixel un riquadro grande richiede decine
+    di migliaia di copie a ogni ridisegno e la finestra diventa lentissima. Le
+    forme sono a tinta unita, quindi ripetere il centro non cambia il disegno.
+    """
+    w, h = image.width(), image.height()
+    left, top, right, bottom = border
+    cw, ch = w - left - right, h - top - bottom
+    # una dimensione senza centro non viene stirata: resta com'è
+    new_cw = max(cw, STRETCH) if cw > 0 else cw
+    new_ch = max(ch, STRETCH) if ch > 0 else ch
+    if (new_cw, new_ch) == (cw, ch):
+        return image
+    W, H = left + new_cw + right, top + new_ch + bottom
+    big = tk.PhotoImage(master=image.tk, width=W, height=H)
+    # nove parti: colonne e righe di sorgente e destinazione (bordo, centro, bordo)
+    cols = ((0, left, 0, left), (left, w - right, left, W - right), (w - right, w, W - right, W))
+    rows = ((0, top, 0, top), (top, h - bottom, top, H - bottom), (h - bottom, h, H - bottom, H))
+    for sx0, sx1, dx0, dx1 in cols:
+        for sy0, sy1, dy0, dy1 in rows:
+            if sx1 > sx0 and sy1 > sy0:
+                big.tk.call(big, "copy", image, "-from", sx0, sy0, sx1, sy1,
+                            "-to", dx0, dy0, dx1, dy1)
+    return big
 
 
 def _element(style, name, images, border, sticky="nsew"):
@@ -150,10 +213,43 @@ def _element(style, name, images, border, sticky="nsew"):
     lasciare almeno una riga e una colonna centrali. padding 0: lo spazio attorno
     al contenuto lo decide il padding dello stile, non il bordo dell'immagine.
     """
+    # la misura minima resta quella dell'immagine originale anche se _widen la ingrandisce
+    size = {"width": images[0][1].width(), "height": images[0][1].height()}
+    if sticky:
+        if isinstance(border, int):
+            border = (border,) * 4
+        elif len(border) == 2:
+            border = border * 2
+        images = [(states, _keep(style.master, _widen(image, border)))
+                  for states, image in images]
     default = images[0][1]
     specs = [(*states, image) for states, image in images[1:]]
     style.element_create(name, "image", default, *specs, border=border, padding=0,
-                         sticky=sticky)
+                         sticky=sticky, **size)
+
+
+def _button_layout(element):
+    return [(element, {"sticky": "nswe", "children": [
+        ("Button.padding", {"sticky": "nswe", "children": [
+            ("Button.label", {"sticky": "nswe"})]})]})]
+
+
+def _semibold(families, family, size):
+    name = f"{family} Semibold"
+    return (name, size) if name in families else (family, size, "bold")
+
+
+def caption(window):
+    """Barra del titolo di Windows 11 dello stesso colore dello sfondo."""
+    try:
+        import ctypes
+        hwnd = ctypes.windll.user32.GetParent(window.winfo_id())
+        r, g, b = _rgb(BG)
+        color = ctypes.c_uint(r | g << 8 | b << 16)
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(  # 35: DWMWA_CAPTION_COLOR
+            hwnd, 35, ctypes.byref(color), ctypes.sizeof(color))
+    except (AttributeError, OSError):
+        pass  # fuori da Windows o prima di Windows 11
 
 
 # ── Tema ──────────────────────────────────────────────────────────────────────
@@ -161,13 +257,11 @@ def _element(style, name, images, border, sticky="nsew"):
 def apply(root):
     families = set(tkfont.families(root))
     family = next((f for f in FONT_FAMILIES if f in families), "TkDefaultFont")
-    title_family = next((f for f in TITLE_FAMILIES if f in families), family)
     for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont"):
         tkfont.nametofont(name).configure(family=family, size=10)
     base = (family, 10)
-    semibold = (f"{family} Semibold" if f"{family} Semibold" in families else family, 10,
-                "normal" if f"{family} Semibold" in families else "bold")
-    root._glass_images = []
+    semibold = _semibold(families, family, 10)
+    root._theme_images = []
 
     root.configure(background=BG)
     # widget tk classici (elenchi, dialoghi, testo); non "*Font" o "*Background":
@@ -185,10 +279,10 @@ def apply(root):
     root.option_add("*Listbox.disabledForeground", DISABLED_TEXT)
     root.option_add("*Listbox.activeStyle", "none")
     root.option_add("*Button.relief", "flat")
-    root.option_add("*Button.background", FIELD)
-    root.option_add("*Button.activeBackground", ACCENT_SOFT)
+    root.option_add("*Button.background", CONTROL)
+    root.option_add("*Button.activeBackground", CONTROL_HOVER)
     root.option_add("*Button.borderWidth", 0)
-    root.option_add("*Button.padX", 16)
+    root.option_add("*Button.padX", 12)
     root.option_add("*Button.padY", 5)
     # elenco a tendina delle combobox
     root.option_add("*TCombobox*Listbox.background", FIELD)
@@ -205,27 +299,24 @@ def apply(root):
                     fieldbackground=FIELD, insertcolor=TEXT, relief="flat")
     style.map(".", foreground=[("disabled", DISABLED_TEXT)])
 
-    # riquadri: contenuto che galleggia sullo sfondo
-    ml, mt, mr, mb = CARD_MARGIN
-    card = _glass(root, 2 * CARD_RADIUS + ml + mr + 4, 2 * CARD_RADIUS + mt + mb + 4,
-                  CARD_RADIUS, CARD, border="#d5dce7", highlight=0.9, shadow=0.10,
-                  margin=CARD_MARGIN)
-    _element(style, "glass.card", [((), card)],
-             border=(CARD_RADIUS + ml, CARD_RADIUS + mt, CARD_RADIUS + mr, CARD_RADIUS + mb))
-    style.layout("Card.TFrame", [("glass.card", {"sticky": "nswe"})])
+    # riquadri: piatti, con il bordo sottile e senza ombra
+    r = CARD_RADIUS
+    card = _shape(root, 2 * r + 4, 2 * r + 4, r, CARD, border=STROKE)
+    _element(style, "fluent.card", [((), card)], border=r + 1)
+    style.layout("Card.TFrame", [("fluent.card", {"sticky": "nswe"})])
     style.configure("Card.TFrame", background=CARD)
 
-    style.configure("Divider.TFrame", background="#d9dfe9")
+    style.configure("Divider.TFrame", background=STROKE)
 
     # testi
     style.configure("TLabel", background=BG, foreground=TEXT)
     style.configure("Muted.TLabel", background=BG, foreground=MUTED, font=(family, 9))
     style.configure("Status.TLabel", background=BG, foreground=MUTED)
-    style.configure("Link.TLabel", background=BG, foreground=MUTED, font=(family, 9))
-    style.configure("LinkHover.TLabel", background=BG, foreground=ACCENT,
+    style.configure("Link.TLabel", background=BG, foreground=ACCENT, font=(family, 9))
+    style.configure("LinkHover.TLabel", background=BG, foreground=ACCENT_HOVER,
                     font=(family, 9, "underline"))
     style.configure("CardTitle.TLabel", background=CARD, foreground=TEXT,
-                    font=(title_family, 11, "bold"))
+                    font=_semibold(families, family, 11))
     for name in ("TLabel", "Muted.TLabel"):
         style.configure(f"Card.{name}", background=CARD)
     style.configure("Card.Muted.TLabel", foreground=MUTED, font=(family, 9))
@@ -234,185 +325,183 @@ def apply(root):
 
     style.configure("Inner.TFrame", background=CARD)  # gruppo di widget dentro un riquadro
 
-    # pulsanti a capsula di vetro chiaro: TButton nei riquadri, Page.TButton fuori
-    m = (1, 1, 1, 2)
-    for prefix, bg in (("", CARD), ("Page.", BG)):
-        button = [
-            ((), _glass(root, 44, 34, 14, "#ffffff", "#f1f4f9", border="#cfd7e3",
-                        highlight=1.0, shadow=0.08, margin=m, bg=bg)),
-            (("disabled",), _glass(root, 44, 34, 14, "#f0f2f6", border="#e1e6ed",
-                                   margin=m, bg=bg)),
-            (("pressed",), _glass(root, 44, 34, 14, "#e6ebf3", "#dfe6f0", border="#c3ccda",
-                                  margin=m, bg=bg)),
-            (("active",), _glass(root, 44, 34, 14, "#ffffff", "#e8f1ff", border="#a9c6ee",
-                                 highlight=1.0, shadow=0.10, margin=m, bg=bg)),
-        ]
-        element = f"glass.{prefix}button"
-        _element(style, element, button, border=(15, 15, 15, 16))
-        style.layout(f"{prefix}TButton", [(element, {"sticky": "nswe", "children": [
-            ("Button.padding", {"sticky": "nswe", "children": [
-                ("Button.label", {"sticky": "nswe"})]})]})])
-        style.configure(f"{prefix}TButton", background=bg, foreground=TEXT, padding=(16, 7),
+    # pulsanti: quasi bianchi, bordo inferiore più scuro; TButton nei riquadri,
+    # Page.TButton fuori. Le stesse immagini fanno le combobox in sola lettura
+    r = CONTROL_RADIUS
+    control = {}
+    for key, bg in (("card", CARD), ("page", BG)):
+        control[key] = {
+            "rest": _shape(root, 24, 32, r, CONTROL, border=STROKE,
+                           border_bottom=STROKE_BOTTOM, bg=bg),
+            "disabled": _shape(root, 24, 32, r, CONTROL_DISABLED, border=STROKE, bg=bg),
+            "pressed": _shape(root, 24, 32, r, CONTROL_PRESSED, border=STROKE, bg=bg),
+            "hover": _shape(root, 24, 32, r, CONTROL_HOVER, border=STROKE,
+                            border_bottom=STROKE_BOTTOM, bg=bg),
+        }
+    for prefix, key, bg in (("", "card", CARD), ("Page.", "page", BG)):
+        images = control[key]
+        element = f"fluent.{key}button"
+        _element(style, element, [((), images["rest"]),
+                                  (("disabled",), images["disabled"]),
+                                  (("pressed",), images["pressed"]),
+                                  (("active",), images["hover"])], border=r + 1)
+        style.layout(f"{prefix}TButton", _button_layout(element))
+        style.configure(f"{prefix}TButton", background=bg, foreground=TEXT, padding=(14, 6),
                         anchor="center", font=base)
-        style.map(f"{prefix}TButton", foreground=[("disabled", DISABLED_TEXT)])
+        style.map(f"{prefix}TButton", foreground=[("disabled", DISABLED_TEXT),
+                                                  ("pressed", MUTED)])
 
-    # pulsante principale: vetro colorato, sullo sfondo della finestra. Primary è
+    # pulsante principale: colore d'accento, sullo sfondo della finestra. Primary è
     # quello grande in fondo alla finestra, Accent ha l'altezza dei pulsanti normali
-    m = (1, 1, 1, 3)
-    for name, h, r, border, padding, button_font in (
-            ("Primary", 44, 16, (17, 17, 17, 19), (24, 11), (title_family, 11, "bold")),
-            ("Accent", 34, 14, (15, 15, 15, 17), (18, 7), semibold)):
+    for name, h, padding, button_font in (
+            ("Primary", 40, (24, 9), _semibold(families, family, 11)),
+            ("Accent", 32, (14, 6), base)):
         images = [
-            ((), _glass(root, 52, h, r, "#3e9dff", "#0a76f0", border="#0767d6",
-                        highlight=0.55, shadow=0.18, margin=m)),
-            (("disabled",), _glass(root, 52, h, r, "#e2e6ed", border="#d6dce5", margin=m)),
-            (("pressed",), _glass(root, 52, h, r, "#0a6fe0", "#0861c7", border="#0558b8",
-                                  highlight=0.25, margin=m)),
-            (("active",), _glass(root, 52, h, r, "#5aaeff", "#1a84ff", border="#0a72e8",
-                                 highlight=0.65, shadow=0.22, margin=m)),
+            ((), _shape(root, 24, h, r, ACCENT, border="#1a6bbb", border_bottom="#003e78")),
+            (("disabled",), _shape(root, 24, h, r, DISABLED_STROKE)),
+            (("pressed",), _shape(root, 24, h, r, ACCENT_PRESSED)),
+            (("active",), _shape(root, 24, h, r, ACCENT_HOVER, border="#2f7bc4",
+                                 border_bottom="#0c4b85")),
         ]
-        element = f"glass.{name.lower()}"
-        _element(style, element, images, border=border)
-        style.layout(f"{name}.TButton", [(element, {"sticky": "nswe", "children": [
-            ("Button.padding", {"sticky": "nswe", "children": [
-                ("Button.label", {"sticky": "nswe"})]})]})])
+        element = f"fluent.{name.lower()}"
+        _element(style, element, images, border=r + 1)
+        style.layout(f"{name}.TButton", _button_layout(element))
         style.configure(f"{name}.TButton", foreground="#ffffff", padding=padding,
                         font=button_font, anchor="center")
-        style.map(f"{name}.TButton", foreground=[("disabled", DISABLED_TEXT)])
+        style.map(f"{name}.TButton", foreground=[("disabled", "#ffffff"),
+                                                 ("pressed", "#dce8f5")])
 
-    # campi: bianchi, angoli concentrici con i riquadri, anello blu col fuoco
-    field_images = {}
-    for key, bg in (("card", CARD), ("page", BG)):
-        field_images[key] = [
-            ((), _glass(root, 28, 32, 10, FIELD, border="#cdd5e1", bg=bg)),
-            (("disabled",), _glass(root, 28, 32, 10, "#f3f5f8", border="#e0e5ec", bg=bg)),
-            (("focus",), _glass(root, 28, 32, 10, FIELD, border=ACCENT, border_width=2, bg=bg)),
-        ]
-    _element(style, "glass.field", field_images["card"], border=11)
-    _element(style, "glass.pagefield", field_images["page"], border=11)
-    for prefix, element in (("", "glass.field"), ("Page.", "glass.pagefield")):
+    # campi: bianchi, linea grigia in basso che col fuoco diventa blu e più spessa.
+    # Le combobox in sola lettura invece sembrano pulsanti, come in Windows 11
+    for prefix, key, bg in (("", "card", CARD), ("Page.", "page", BG)):
+        buttons = control[key]
+        element = f"fluent.{key}field"
+        _element(style, element, [
+            ((), _shape(root, 24, 32, r, FIELD, border=STROKE, underline=(STRONG, 1), bg=bg)),
+            (("disabled",), buttons["disabled"]),
+            (("readonly", "pressed"), buttons["pressed"]),
+            (("readonly", "active"), buttons["hover"]),
+            (("readonly",), buttons["rest"]),
+            (("focus",), _shape(root, 24, 32, r, FIELD, border=STROKE,
+                                underline=(ACCENT, 2), bg=bg)),
+        ], border=r + 1)
         style.layout(f"{prefix}TEntry", [(element, {"sticky": "nswe", "children": [
             ("Entry.padding", {"sticky": "nswe", "children": [
                 ("Entry.textarea", {"sticky": "nswe"})]})]})])
         # la freccia sta dentro il padding, così non copre l'angolo arrotondato
         style.layout(f"{prefix}TCombobox", [(element, {"sticky": "nswe", "children": [
             ("Combobox.padding", {"sticky": "nswe", "children": [
-                ("Combobox.downarrow", {"side": "right", "sticky": "ns"}),
+                ("fluent.chevron", {"side": "right", "sticky": ""}),
                 ("Combobox.textarea", {"sticky": "nswe"})]})]})])
         for name in ("TEntry", "TCombobox"):
             style.configure(f"{prefix}{name}", fieldbackground=FIELD, background=FIELD,
-                            foreground=TEXT, bordercolor=FIELD, lightcolor=FIELD,
-                            darkcolor=FIELD, padding=(10, 6, 8, 6), arrowcolor=MUTED,
-                            arrowsize=14)
+                            foreground=TEXT, padding=(10, 6, 10, 6))
             style.map(f"{prefix}{name}",
-                      fieldbackground=[("disabled", "#f3f5f8")],
-                      background=[("disabled", "#f3f5f8")],
-                      bordercolor=[("disabled", "#f3f5f8")],
-                      lightcolor=[("disabled", "#f3f5f8")],
-                      darkcolor=[("disabled", "#f3f5f8")],
-                      arrowcolor=[("disabled", DISABLED_TEXT), ("active", ACCENT)],
-                      selectbackground=[("readonly", FIELD)],
+                      selectbackground=[("readonly", "active", CONTROL_HOVER),
+                                        ("readonly", CONTROL)],
                       selectforeground=[("readonly", TEXT)])
-    # il riquadro con il campo: padding interno per gli elenchi tk (field_box)
-    style.layout("Field.TFrame", [("glass.field", {"sticky": "nswe"})])
+    _element(style, "fluent.chevron", [((), _chevron(root, MUTED)),
+                                       (("disabled",), _chevron(root, DISABLED_TEXT))],
+             border=0, sticky="")
 
-    # scelte: indicatore rotondo, pieno di blu quando è selezionato
-    radio = [
-        ((), _glass(root, 26, 20, 9, FIELD, border="#b9c3d1", shape_width=18,
-                    margin=(0, 1, 0, 1), bg=CARD)),
-        (("disabled", "selected"), _glass(root, 26, 20, 9, "#c9d1dc", shape_width=18,
-                                          margin=(0, 1, 0, 1), bg=CARD, dot=(3.2, "#f3f5f8"))),
-        (("disabled",), _glass(root, 26, 20, 9, "#f3f5f8", border="#dde2e9", shape_width=18,
-                               margin=(0, 1, 0, 1), bg=CARD)),
-        (("selected",), _glass(root, 26, 20, 9, "#3e9dff", "#0a76f0", border="#0767d6",
-                               highlight=0.5, shape_width=18, margin=(0, 1, 0, 1), bg=CARD,
-                               dot=(3.2, "#ffffff"))),
-        (("active",), _glass(root, 26, 20, 9, FIELD, border=ACCENT, shape_width=18,
-                             margin=(0, 1, 0, 1), bg=CARD)),
-    ]
-    _element(style, "glass.radio", radio, border=0, sticky="")
+    # elenchi e tabelle: come i campi, ma senza la linea in basso
+    box = _shape(root, 24, 32, r, FIELD, border=STROKE, bg=CARD)
+    _element(style, "fluent.box", [((), box)], border=r + 1)
+    style.layout("Field.TFrame", [("fluent.box", {"sticky": "nswe"})])
+
+    # scelte: cerchio grigio, pieno di blu con un pallino bianco quando è selezionato
     for prefix, bg in (("", BG), ("Card.", CARD)):
+        def radio(fill, border=None, dot=None):
+            return _shape(root, 28, 22, 10, fill, border=border, shape_width=20,
+                          margin=(0, 1, 0, 1), bg=bg, dot=dot)
+        element = f"fluent.{prefix.lower()}radio"
+        _element(style, element, [
+            ((), radio(CONTROL, STRONG)),
+            (("disabled", "selected"), radio(DISABLED_STROKE, dot=(4, "#ffffff"))),
+            (("disabled",), radio(CONTROL_DISABLED, DISABLED_STROKE)),
+            (("selected", "pressed"), radio(ACCENT_PRESSED, dot=(3, "#ffffff"))),
+            (("selected", "active"), radio(ACCENT_HOVER, dot=(5, "#ffffff"))),
+            (("selected",), radio(ACCENT, dot=(4, "#ffffff"))),
+            (("active",), radio(SUBTLE_HOVER, STRONG)),
+        ], border=0, sticky="")
         style.layout(f"{prefix}TRadiobutton", [("Radiobutton.padding", {"sticky": "nswe", "children": [
-            ("glass.radio", {"side": "left", "sticky": ""}),
+            (element, {"side": "left", "sticky": ""}),
             ("Radiobutton.label", {"side": "left", "sticky": "nswe"})]})])
         style.configure(f"{prefix}TRadiobutton", background=bg, padding=(0, 3))
         style.map(f"{prefix}TRadiobutton", background=[("active", bg)])
 
-    # interruttore: capsula con il pomello bianco, blu quando è acceso
-    m = (1, 1, 1, 1)
-    switch = [
-        ((), _glass(root, 42, 24, 11, "#d9dee6", "#e3e7ee", border="#c8d0dc",
-                    margin=m, bg=CARD, dot=(9, "#ffffff", 12, 0.35))),
-        (("disabled", "selected"), _glass(root, 42, 24, 11, "#b9d6fb", margin=m, bg=CARD,
-                                          dot=(9, "#f6f8fb", 30))),
-        (("disabled",), _glass(root, 42, 24, 11, "#eceff3", border="#e0e5ec", margin=m,
-                               bg=CARD, dot=(9, "#f6f8fb", 12))),
-        (("selected",), _glass(root, 42, 24, 11, "#3e9dff", "#0a76f0", border="#0767d6",
-                               highlight=0.5, margin=m, bg=CARD,
-                               dot=(9, "#ffffff", 30, 0.35))),
-    ]
-    _element(style, "glass.switch", switch, border=0, sticky="")
-    style.layout("Switch.TCheckbutton", [("glass.switch", {"sticky": ""})])
+    # interruttore: capsula col bordo grigio, piena di blu quando è acceso; il
+    # pomello si ingrandisce col mouse sopra
+    def switch(fill, knob, x, size=6, border=None):
+        return _shape(root, 42, 22, 10, fill, border=border, margin=(1, 1, 1, 1), bg=CARD,
+                      dot=(size, knob, x))
+    _element(style, "fluent.switch", [
+        ((), switch(CONTROL, MUTED, 11, border=STRONG)),
+        (("disabled", "selected"), switch(DISABLED_STROKE, "#ffffff", 31)),
+        (("disabled",), switch(CONTROL_DISABLED, DISABLED_STROKE, 11, border=DISABLED_STROKE)),
+        (("selected", "active"), switch(ACCENT_HOVER, "#ffffff", 31, 7)),
+        (("selected",), switch(ACCENT, "#ffffff", 31)),
+        (("active",), switch(CONTROL_HOVER, MUTED, 11, 7, border=STRONG)),
+    ], border=0, sticky="")
+    style.layout("Switch.TCheckbutton", [("fluent.switch", {"sticky": ""})])
     style.configure("Switch.TCheckbutton", background=CARD, padding=0)
     style.map("Switch.TCheckbutton", background=[("active", CARD)])
 
-    # schede: controllo segmentato, pillola di vetro sulla scheda scelta
-    track = _glass(root, 48, 44, 20, TRACK, "#e6e9f0", border="#d3d9e3")
-    _element(style, "glass.track", [((), track)], border=20)
-    style.layout("Segments.TFrame", [("glass.track", {"sticky": "nswe"})])
-    style.configure("Segments.TFrame", background=TRACK)
-    m = (1, 1, 1, 2)
-    segment = [
-        ((), _glass(root, 40, 34, 15, TRACK, bg=TRACK, margin=m)),
-        (("selected",), _glass(root, 40, 34, 15, "#ffffff", "#f7f9fc", border="#d0d7e2",
-                               highlight=1.0, shadow=0.12, margin=m, bg=TRACK)),
-        (("active",), _glass(root, 40, 34, 15, "#edf0f5", bg=TRACK, margin=m)),
-    ]
-    _element(style, "glass.segment", segment, border=(16, 16, 16, 17))
-    style.layout("Segment.TRadiobutton", [("glass.segment", {"sticky": "nswe", "children": [
+    # schede: voci di testo, la scelta ha sotto una barretta blu (SelectorBar)
+    _element(style, "fluent.selector", [
+        ((), _shape(root, 16, 32, r, BG)),
+        (("active",), _shape(root, 16, 32, r, SUBTLE_HOVER)),
+    ], border=r + 1)
+    _element(style, "fluent.pill", [
+        ((), _shape(root, 16, 3, 1.5, BG)),
+        (("selected", "active"), _shape(root, 16, 3, 1.5, ACCENT, bg=SUBTLE_HOVER)),
+        (("selected",), _shape(root, 16, 3, 1.5, ACCENT)),
+        (("active",), _shape(root, 16, 3, 1.5, SUBTLE_HOVER, bg=SUBTLE_HOVER)),
+    ], border=0, sticky="")
+    style.layout("Selector.TRadiobutton", [("fluent.selector", {"sticky": "nswe", "children": [
         ("Toolbutton.padding", {"sticky": "nswe", "children": [
-            ("Toolbutton.label", {"sticky": "nswe"})]})]})])
-    style.configure("Segment.TRadiobutton", background=TRACK, foreground=MUTED,
-                    padding=(22, 8), anchor="center", font=semibold)
-    style.map("Segment.TRadiobutton", background=[("active", TRACK)],
+            ("fluent.pill", {"side": "bottom", "sticky": ""}),
+            ("Toolbutton.label", {"side": "top", "sticky": "nswe"})]})]})])
+    style.configure("Selector.TRadiobutton", background=BG, foreground=MUTED,
+                    padding=(12, 7, 12, 3), anchor="center", font=base)
+    style.map("Selector.TRadiobutton", background=[("active", BG)],
               foreground=[("selected", TEXT), ("active", TEXT)])
 
-    # avanzamento: capsula sottile
-    trough = _glass(root, 16, 8, 4, "#dde3ec")
-    pbar = _glass(root, 16, 8, 4, "#3e9dff", "#0a76f0", highlight=0.4)
-    _element(style, "glass.Horizontal.Progressbar.trough", [((), trough)], border=4)
-    _element(style, "glass.Horizontal.Progressbar.pbar", [((), pbar)], border=4)
-    style.layout("Horizontal.TProgressbar", [("glass.Horizontal.Progressbar.trough", {
+    # avanzamento: linea sottile grigia, barra blu arrotondata da 3 px
+    trough = _shape(root, 16, 4, 0.5, STRONG, margin=(0, 1.5, 0, 1.5))
+    pbar = _shape(root, 16, 4, 1.5, ACCENT, margin=(0, 0.5, 0, 0.5))
+    _element(style, "fluent.Horizontal.Progressbar.trough", [((), trough)], border=(2, 0))
+    _element(style, "fluent.Horizontal.Progressbar.pbar", [((), pbar)], border=(2, 0))
+    style.layout("Horizontal.TProgressbar", [("fluent.Horizontal.Progressbar.trough", {
         "sticky": "nswe", "children": [
-            ("glass.Horizontal.Progressbar.pbar", {"side": "left", "sticky": "ns"})]})])
-    style.configure("Horizontal.TProgressbar", thickness=8)
+            ("fluent.Horizontal.Progressbar.pbar", {"side": "left", "sticky": "ns"})]})])
+    style.configure("Horizontal.TProgressbar", thickness=4)
 
-    # barre di scorrimento: solo il cursore a capsula, senza frecce
-    for prefix, bg, thumb, hover in (("", FIELD, "#c4ccd8", "#a3aebd"),
-                                     ("Page.", BG, "#c4ccd8", "#a3aebd"),
-                                     ("Dark.", LOG_BG, "#3a4456", "#556075")):
-        images = [((), _glass(root, 12, 28, 4, thumb, margin=(3, 2, 3, 2), bg=bg)),
-                  (("pressed",), _glass(root, 12, 28, 4, hover, margin=(3, 2, 3, 2), bg=bg)),
-                  (("active",), _glass(root, 12, 28, 4, hover, margin=(3, 2, 3, 2), bg=bg))]
-        _element(style, f"glass.{prefix}Vertical.Scrollbar.thumb", images, border=(6, 7))
+    # barre di scorrimento: cursore sottile che si allarga col mouse sopra
+    for prefix, bg, thumb in (("", FIELD, STRONG), ("Page.", BG, STRONG),
+                              ("Dark.", LOG_BG, "#7a7a7a")):
+        thin = _shape(root, 12, 28, 1.5, thumb, margin=(5, 2, 4, 2), bg=bg)
+        wide = _shape(root, 12, 28, 3, thumb, margin=(3, 2, 3, 2), bg=bg)
+        element = f"fluent.{prefix}Vertical.Scrollbar.thumb"
+        _element(style, element, [((), thin), (("pressed",), wide), (("active",), wide)],
+                 border=(6, 7))
         style.layout(f"{prefix}Vertical.TScrollbar", [("Vertical.Scrollbar.trough", {
-            "sticky": "ns", "children": [
-                (f"glass.{prefix}Vertical.Scrollbar.thumb", {"expand": "1", "sticky": "nswe"})]})])
+            "sticky": "ns", "children": [(element, {"expand": "1", "sticky": "nswe"})]})])
         style.configure(f"{prefix}Vertical.TScrollbar", troughcolor=bg, background=bg,
                         bordercolor=bg, lightcolor=bg, darkcolor=bg, width=12)
 
     # tabelle
-    style.layout("Treeview", [("glass.field", {"sticky": "nswe", "children": [
+    style.layout("Treeview", [("fluent.box", {"sticky": "nswe", "children": [
         ("Treeview.padding", {"sticky": "nswe", "children": [
             ("Treeview.treearea", {"sticky": "nswe"})]})]})])
     style.configure("Treeview", background=FIELD, fieldbackground=FIELD, foreground=TEXT,
-                    rowheight=28, padding=6)
+                    rowheight=30, padding=4)
     style.map("Treeview", background=[("selected", ACCENT_SOFT)],
               foreground=[("selected", TEXT)])
     style.configure("Treeview.Heading", background=FIELD, foreground=MUTED, font=semibold,
-                    borderwidth=0, relief="flat", padding=(6, 4),
+                    borderwidth=0, relief="flat", padding=(8, 6),
                     bordercolor=FIELD, lightcolor=FIELD, darkcolor=FIELD)
-    style.map("Treeview.Heading", background=[("active", "#f3f6fa")])
+    style.map("Treeview.Heading", background=[("active", CONTROL_HOVER)])
 
     style.configure("TPanedwindow", background=BG)
     style.configure("Sash", sashthickness=10, background=BG, bordercolor=BG,
@@ -525,18 +614,16 @@ def brand(parent):
 
 
 def card(parent, title=None):
-    """Riquadro arrotondato con ombra, con il titolo in alto a sinistra.
+    """Riquadro arrotondato con il bordo sottile, con il titolo in alto a sinistra.
 
     Il titolo è posizionato con place, così dentro il riquadro si possono usare
     sia grid sia pack; il padding superiore gli lascia spazio. Le coordinate di
     place partono dall'interno del padding, per questo sono negative.
     """
-    ml, mt, mr, mb = CARD_MARGIN
-    top = CARD_PAD + mt + (TITLE_SPACE if title else 0)
-    frame = ttk.Frame(parent, style="Card.TFrame",
-                      padding=(CARD_PAD + ml, top, CARD_PAD + mr, CARD_PAD + mb))
+    top = CARD_PAD + (TITLE_SPACE if title else 0)
+    frame = ttk.Frame(parent, style="Card.TFrame", padding=(CARD_PAD, top, CARD_PAD, CARD_PAD))
     if title:
-        frame.title_y = -(top - mt - CARD_PAD + 4)
+        frame.title_y = -(TITLE_SPACE + 4)
         ttk.Label(frame, text=title, style="CardTitle.TLabel").place(x=0, y=frame.title_y)
     return frame
 
@@ -608,7 +695,7 @@ class ScrollArea(ttk.Frame):
 
 
 class Tabs(ttk.Frame):
-    """Schede scelte con un controllo segmentato a capsula, centrato in alto.
+    """Schede scelte con una barra di voci in alto a sinistra (SelectorBar).
 
     Le pagine stanno tutte nella stessa cella della griglia, una sopra l'altra:
     la scheda scelta passa in primo piano. Così l'area è alta quanto la pagina
@@ -619,8 +706,9 @@ class Tabs(ttk.Frame):
         super().__init__(parent, **kw)
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
-        self.segments = ttk.Frame(self, style="Segments.TFrame", padding=3)
-        self.segments.grid(row=0, column=0, pady=(14, 0))
+        # il testo della prima voce allineato al bordo dei riquadri delle pagine
+        self.bar = ttk.Frame(self)
+        self.bar.grid(row=0, column=0, sticky="w", padx=(8, 0), pady=(8, 0))
         self.current = tk.StringVar()
         self.pages = {}
 
@@ -637,8 +725,8 @@ class Tabs(ttk.Frame):
             page = content = ttk.Frame(self)
         page.grid(row=1, column=0, sticky="nsew")
         self.pages[name] = page
-        ttk.Radiobutton(self.segments, text=name, value=name, variable=self.current,
-                        style="Segment.TRadiobutton", takefocus=False,
+        ttk.Radiobutton(self.bar, text=name, value=name, variable=self.current,
+                        style="Selector.TRadiobutton", takefocus=False,
                         command=lambda: self.select(name)).pack(side="left")
         if len(self.pages) == 1:
             self.select(name)
@@ -666,20 +754,17 @@ def log_widget(parent, height=10):
     """Area di log scura e arrotondata; ritorna (riquadro, testo)."""
     root = parent.winfo_toplevel()
     if not hasattr(root, "_log_panel"):
-        root._log_panel = _glass(root, 44, 46, 16, LOG_BG, "#121722", border="#0b0f17",
-                                 highlight=0.12, shadow=0.16, margin=CARD_MARGIN)
-        ml, mt, mr, mb = CARD_MARGIN
+        r = CARD_RADIUS
+        root._log_panel = _shape(root, 2 * r + 4, 2 * r + 4, r, LOG_BG, border="#2b2b2b")
         style = ttk.Style(root)
-        _element(style, "glass.log", [((), root._log_panel)],
-                 border=(16 + ml, 16 + mt, 16 + mr, 16 + mb))
-        style.layout("Log.TFrame", [("glass.log", {"sticky": "nswe"})])
+        _element(style, "fluent.log", [((), root._log_panel)], border=r + 1)
+        style.layout("Log.TFrame", [("fluent.log", {"sticky": "nswe"})])
         style.configure("Log.TFrame", background=LOG_BG)
-    ml, mt, mr, mb = CARD_MARGIN
-    box = ttk.Frame(parent, style="Log.TFrame", padding=(8 + ml, 8 + mt, 6 + mr, 8 + mb))
+    box = ttk.Frame(parent, style="Log.TFrame", padding=(8, 8, 4, 8))
     text = tk.Text(box, height=height, state="disabled", wrap="word", relief="flat",
                    borderwidth=0, highlightthickness=0, padx=8, pady=4,
                    background=LOG_BG, foreground=LOG_TEXT, insertbackground=LOG_TEXT,
-                   selectbackground="#334155", font=(MONO_FAMILY, 9))
+                   selectbackground="#264f78", font=(MONO_FAMILY, 9))
     scroll = ttk.Scrollbar(box, orient="vertical", command=text.yview,
                            style="Dark.Vertical.TScrollbar")
     text.configure(yscrollcommand=scroll.set)
@@ -690,9 +775,25 @@ def log_widget(parent, height=10):
 
 # ── Posizione della finestra ──────────────────────────────────────────────────
 
+def _foreground():
+    """Finestra in primo piano, letta all'avvio: quella da cui è stato lanciato il
+    programma (Esplora risorse, barra delle applicazioni, terminale)."""
+    try:
+        import ctypes
+        return ctypes.windll.user32.GetForegroundWindow()
+    except (AttributeError, OSError):
+        return None
+
+
+# letta all'importazione, prima che si apra una finestra Tk: l'exe in un unico
+# file impiega alcuni secondi a partire e intanto il mouse può spostarsi altrove
+LAUNCHER = _foreground()
+
+
 def work_area(root, at=None):
     """(x, y, larghezza, altezza) dell'area utile del monitor che contiene il punto
-    at (x, y), o di quello su cui c'è il mouse.
+    at (x, y), o di quello della finestra da cui è stato lanciato il programma, o
+    di quello su cui c'è il mouse.
 
     Esclude la barra delle applicazioni; fuori da Windows lo schermo principale.
     """
@@ -707,11 +808,22 @@ def work_area(root, at=None):
         user32 = ctypes.windll.user32
         user32.MonitorFromPoint.restype = wintypes.HMONITOR
         user32.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+        user32.MonitorFromWindow.restype = wintypes.HMONITOR
+        user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
         user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.POINTER(MonitorInfo)]
-        point = wintypes.POINT(*at) if at else wintypes.POINT()
-        if not at:
+        monitor = None
+        if at:
+            monitor = user32.MonitorFromPoint(wintypes.POINT(*at), 2)  # MONITOR_DEFAULTTONEAREST
+        elif LAUNCHER and user32.IsWindow(LAUNCHER):
+            name = ctypes.create_unicode_buffer(64)
+            user32.GetClassNameW(LAUNCHER, name, 64)
+            # il desktop copre tutti i monitor: lì conta il punto del doppio clic
+            if name.value not in ("Progman", "WorkerW"):
+                monitor = user32.MonitorFromWindow(LAUNCHER, 2)
+        if not monitor:
+            point = wintypes.POINT()
             user32.GetCursorPos(ctypes.byref(point))
-        monitor = user32.MonitorFromPoint(point, 2)  # MONITOR_DEFAULTTONEAREST
+            monitor = user32.MonitorFromPoint(point, 2)
         info = MonitorInfo(cbSize=ctypes.sizeof(MonitorInfo))
         if user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
             r = info.rcWork
@@ -739,6 +851,7 @@ def center(root):
     x = left + (width - w - frame_w) // 2
     y = top + (height - h - frame_h) // 2
     root.geometry(f"{w}x{h}+{x}+{y}")
+    caption(root)
     root.deiconify()
 
 
@@ -786,22 +899,24 @@ class Dialog(tk.Toplevel):
         self.result = None
         self.cancel = cancel
 
-        frame = ttk.Frame(self, padding=(24, 20, 24, 18))
-        frame.pack(fill="both", expand=True)
-        body = ttk.Frame(frame)
+        # contenuto in alto, pulsanti di pari larghezza in una fascia separata
+        body = ttk.Frame(self, padding=(24, 22, 24, 22))
         body.pack(fill="both", expand=True)
         focus = self.body(body)
-        row = ttk.Frame(frame)
-        row.pack(fill="x", pady=(20, 0))
+        ttk.Frame(self, style="Divider.TFrame", height=1).pack(fill="x")
+        row = ttk.Frame(self, padding=(24, 16, 24, 16))
+        row.pack(fill="x")
         default = buttons[-1][1]
         for i, (text, value) in enumerate(reversed(buttons)):
-            ttk.Button(row, text=text, style="Accent.TButton" if i == 0 else "Page.TButton",
+            ttk.Button(row, text=text, width=10,
+                       style="Accent.TButton" if i == 0 else "Page.TButton",
                        command=lambda v=value: self.done(v)).pack(side="right", padx=(8, 0))
         self.bind("<Return>", lambda _e: self.done(default))
         self.bind("<Escape>", lambda _e: self.done(cancel))
         self.protocol("WM_DELETE_WINDOW", lambda: self.done(cancel))
 
         place_over(self, parent)
+        caption(self)
         self.deiconify()
         self.grab_set()
         (focus or self).focus_set()
@@ -829,11 +944,11 @@ class Dialog(tk.Toplevel):
         self.parent.focus_set()
 
 
-ICONS = {  # simbolo, colore in alto e in basso del cerchio
-    "info": ("i", "#3e9dff", "#0a76f0"),
-    "question": ("?", "#3e9dff", "#0a76f0"),
-    "warning": ("!", "#ffb340", "#f08a00"),
-    "error": ("✕", "#ff6259", "#e0352b"),
+ICONS = {  # simbolo e colore del cerchio, come nelle InfoBar di Windows 11
+    "info": ("i", ACCENT),
+    "question": ("?", ACCENT),
+    "warning": ("!", "#9d5d00"),
+    "error": ("✕", ERROR),
 }
 
 
@@ -844,15 +959,15 @@ class _Message(Dialog):
 
     def body(self, master):
         root = self._root()
-        cache = root.__dict__.setdefault("_glass_icons", {})
-        symbol, top, bottom = ICONS[self.icon]
+        cache = root.__dict__.setdefault("_theme_icons", {})
+        symbol, color = ICONS[self.icon]
         if self.icon not in cache:
-            cache[self.icon] = _glass(root, 36, 36, 18, top, bottom, highlight=0.5)
+            cache[self.icon] = _shape(root, 32, 32, 16, color)
         ttk.Label(master, image=cache[self.icon], text=symbol, compound="center",
                   foreground="#ffffff", font=(tkfont.nametofont("TkDefaultFont").actual("family"),
-                                              14, "bold")).pack(side="left", anchor="n")
+                                              12, "bold")).pack(side="left", anchor="n")
         ttk.Label(master, text=self.message, wraplength=420, justify="left").pack(
-            side="left", anchor="n", padx=(16, 0), pady=(6, 0))
+            side="left", anchor="n", padx=(14, 0), pady=(5, 0))
         if self.icon in ("warning", "error"):
             self.bell()
         return None
