@@ -8,6 +8,7 @@ import time
 
 import esptool
 import serial
+from serial.tools import list_ports
 from esptool.cmds import detect_flash_size, reset_chip
 from esptool.logger import TemplateLogger, log
 
@@ -45,6 +46,11 @@ def port_score(port):
     if (port.vid, port.pid) in ESP_USB_IDS or (port.vid, None) in ESP_USB_IDS:
         return 2
     return 1
+
+
+def esp_ports():
+    """Porte seriali USB a cui può essere collegato un ESP32 (no Bluetooth/virtuali)."""
+    return sorted((p for p in list_ports.comports() if port_score(p)), key=port_number)
 
 
 def guess_port(ports):

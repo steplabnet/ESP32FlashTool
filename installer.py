@@ -30,18 +30,17 @@ import tkinter as tk
 import urllib.error
 import urllib.request
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
-from tkinter.scrolledtext import ScrolledText
+from tkinter import filedialog, ttk
 from urllib.parse import urljoin
 
 import esptool
-from serial.tools import list_ports
 
 import catalog
 from catalog import CHIPS, DEFAULT_SERVER_URL, INDEX_FILE, base_url, chip_label, clean_url, target_label
 import esp_device
 import fs_image
-from esp_device import connect_hint, guess_port, is_connect_error, port_number, port_score
+import theme
+from esp_device import connect_hint, guess_port, is_connect_error, port_score
 
 APP_TITLE = "ST ESP32 Flash Tool"
 BAUD_RATES = ["921600", "460800", "230400", "115200"]
@@ -182,7 +181,8 @@ class InstallerApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_TITLE)
-        self.minsize(720, 560)
+        self.minsize(760, 520)
+        theme.apply(self)
 
         self.events = queue.Queue()
         esp_device.set_logger(self.events)
@@ -204,11 +204,13 @@ class InstallerApp(tk.Tk):
         self.port_var = tk.StringVar()
         self.baud_var = tk.StringVar(value=self.config_data.get("baud", DEFAULT_BAUD))
         self.mode_var = tk.StringVar(value=MODE_FULL)
+        self.extras_var = tk.BooleanVar(value=self.config_data.get("extras", False))
         self.status_var = tk.StringVar(value="Inserisci l'URL del server firmware")
 
         self.build_ui()
         self.refresh_chips()
         self.refresh_ports()
+        theme.center(self)
         self.after(100, self.poll_events)
         if self.url_var.get():
             self.load_server()
@@ -216,82 +218,119 @@ class InstallerApp(tk.Tk):
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def build_ui(self):
-        frame = ttk.Frame(self, padding=12)
-        frame.pack(fill="both", expand=True)
-        frame.columnconfigure(1, weight=1)
+        # in fondo, sempre visibili: pulsante, avanzamento, stato e logo
+        footer = ttk.Frame(self, padding=(20, 12, 20, 12))
+        footer.pack(side="bottom", fill="x")
+        footer.columnconfigure(0, weight=1)
+        ttk.Frame(self, style="Divider.TFrame", height=1).pack(side="bottom", fill="x")
+        self.flash_button = ttk.Button(footer, text="Carica firmware", style="Primary.TButton",
+                                       command=self.start_flash, cursor="hand2")
+        self.flash_button.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        self.flash_button.state(["disabled"])
+        self.progress = ttk.Progressbar(footer, maximum=100)
+        self.progress.grid(row=1, column=0, columnspan=2, sticky="ew")
+        ttk.Label(footer, textvariable=self.status_var, style="Status.TLabel").grid(
+            row=2, column=0, sticky="w", pady=(8, 0))
+        theme.brand(footer).grid(row=2, column=1, sticky="e", pady=(8, 0))
 
-        ttk.Label(frame, text="Server").grid(row=0, column=0, sticky="w", pady=4)
-        url_entry = ttk.Entry(frame, textvariable=self.url_var)
-        url_entry.grid(row=0, column=1, sticky="ew", pady=4)
+        # il resto è diviso in schede, ognuna scorre se la finestra è troppo bassa
+        self.tabs = theme.Tabs(self)
+        self.tabs.pack(fill="both", expand=True)
+
+        frame = self.tabs.add("Dispositivo")
+        frame.configure(padding=(20, 12, 20, 12))
+        frame.columnconfigure(0, weight=1)
+        device = theme.card(frame, "Connessione")
+        device.grid(row=0, column=0, sticky="ew")
+        device.columnconfigure(1, weight=1)
+
+        ttk.Label(device, text="Server", style="Card.TLabel").grid(
+            row=0, column=0, sticky="w", pady=5, padx=(0, 12))
+        url_entry = ttk.Entry(device, textvariable=self.url_var)
+        url_entry.grid(row=0, column=1, sticky="ew", pady=5)
         url_entry.bind("<Return>", lambda _e: self.load_server())
-        self.load_button = ttk.Button(frame, text="Carica elenco", command=self.load_server)
-        self.load_button.grid(row=0, column=2, padx=(6, 0), pady=4)
+        self.load_button = ttk.Button(device, text="Carica elenco", command=self.load_server)
+        self.load_button.grid(row=0, column=2, sticky="ew", padx=(8, 0), pady=5)
 
-        ttk.Label(frame, text="Porta COM").grid(row=1, column=0, sticky="w", pady=4)
-        self.port_box = ttk.Combobox(frame, textvariable=self.port_var, state="readonly")
-        self.port_box.grid(row=1, column=1, sticky="ew", pady=4)
+        ttk.Label(device, text="Porta COM", style="Card.TLabel").grid(
+            row=1, column=0, sticky="w", pady=5, padx=(0, 12))
+        self.port_box = ttk.Combobox(device, textvariable=self.port_var, state="readonly")
+        self.port_box.grid(row=1, column=1, sticky="ew", pady=5)
         self.port_box.bind("<<ComboboxSelected>>", lambda _e: self.port_changed())
-        ttk.Button(frame, text="Aggiorna", command=self.refresh_ports).grid(
-            row=1, column=2, padx=(6, 0), pady=4)
+        ttk.Button(device, text="Aggiorna", command=self.refresh_ports).grid(
+            row=1, column=2, sticky="ew", padx=(8, 0), pady=5)
 
-        ttk.Label(frame, text="Chip").grid(row=2, column=0, sticky="w", pady=4)
-        self.chip_box = ttk.Combobox(frame, state="readonly")
-        self.chip_box.grid(row=2, column=1, sticky="ew", pady=4)
+        ttk.Label(device, text="Chip", style="Card.TLabel").grid(
+            row=2, column=0, sticky="w", pady=5, padx=(0, 12))
+        self.chip_box = ttk.Combobox(device, state="readonly")
+        self.chip_box.grid(row=2, column=1, sticky="ew", pady=5)
         self.chip_box.bind("<<ComboboxSelected>>", lambda _e: self.chip_changed())
-        self.detect_button = ttk.Button(frame, text="Rileva chip", command=self.start_detect)
-        self.detect_button.grid(row=2, column=2, padx=(6, 0), pady=4)
-        ttk.Label(frame, textvariable=self.chip_info_var, foreground="gray").grid(
+        self.detect_button = ttk.Button(device, text="Rileva chip", command=self.start_detect)
+        self.detect_button.grid(row=2, column=2, sticky="ew", padx=(8, 0), pady=5)
+        ttk.Label(device, textvariable=self.chip_info_var, style="Card.Muted.TLabel").grid(
             row=3, column=1, columnspan=2, sticky="w")
 
-        ttk.Label(frame, text="Scheda").grid(row=4, column=0, sticky="w", pady=4)
-        self.board_box = ttk.Combobox(frame, state="readonly")
-        self.board_box.grid(row=4, column=1, columnspan=2, sticky="ew", pady=4)
+        ttk.Label(device, text="Scheda", style="Card.TLabel").grid(
+            row=4, column=0, sticky="w", pady=5, padx=(0, 12))
+        self.board_box = ttk.Combobox(device, state="readonly")
+        self.board_box.grid(row=4, column=1, columnspan=2, sticky="ew", pady=5)
         self.board_box.bind("<<ComboboxSelected>>", lambda _e: self.board_changed())
 
-        ttk.Label(frame, text="Velocità").grid(row=5, column=0, sticky="w", pady=4)
-        ttk.Combobox(frame, textvariable=self.baud_var, values=BAUD_RATES,
-                     state="readonly", width=10).grid(row=5, column=1, sticky="w", pady=4)
+        ttk.Label(device, text="Velocità", style="Card.TLabel").grid(
+            row=5, column=0, sticky="w", pady=5, padx=(0, 12))
+        ttk.Combobox(device, textvariable=self.baud_var, values=BAUD_RATES,
+                     state="readonly", width=10).grid(row=5, column=1, sticky="w", pady=5)
 
-        modes = ttk.LabelFrame(frame, text="Modalità", padding=8)
-        modes.grid(row=6, column=0, columnspan=3, sticky="ew", pady=8)
+        frame = self.tabs.add("Opzioni")
+        frame.configure(padding=(20, 12, 20, 12))
+        frame.columnconfigure(0, weight=1)
+        modes = theme.card(frame, "Modalità")
+        modes.grid(row=0, column=0, sticky="ew")
         ttk.Radiobutton(modes, variable=self.mode_var, value=MODE_UPDATE, command=self.mode_changed,
+                        style="Card.TRadiobutton",
                         text="Aggiornamento firmware — mantiene configurazione e file del dispositivo"
                         ).pack(anchor="w")
         ttk.Radiobutton(modes, variable=self.mode_var, value=MODE_FULL, command=self.mode_changed,
+                        style="Card.TRadiobutton",
                         text="Installazione completa — cancella tutta la flash e scrive anche il filesystem (data/)"
                         ).pack(anchor="w")
 
-        extras = ttk.LabelFrame(frame, text="File aggiuntivi nel filesystem", padding=8)
-        extras.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(0, 8))
+        extras = theme.card(frame, "File aggiuntivi nel filesystem")
+        extras.grid(row=1, column=0, sticky="ew", pady=(12, 0))
         extras.columnconfigure(0, weight=1)
-        self.extra_list = tk.Listbox(extras, height=3, activestyle="none")
-        self.extra_list.grid(row=0, column=0, rowspan=3, sticky="nsew")
+        self.extras_switch = theme.card_switch(extras, self.extras_var, self.extras_toggled)
+        # con l'interruttore spento resta solo il titolo; il riquadro vuoto si
+        # ridimensiona solo se ha ancora almeno un widget in griglia
+        ttk.Frame(extras, style="Inner.TFrame", height=1).grid(row=0, column=0, sticky="ew")
+        self.extras_body = ttk.Frame(extras, style="Inner.TFrame")
+        self.extras_body.grid(row=1, column=0, sticky="ew")
+        self.extras_body.columnconfigure(0, weight=1)
+        extra_box = theme.field_box(self.extras_body)
+        extra_box.grid(row=0, column=0, rowspan=3, sticky="nsew")
+        self.extra_list = tk.Listbox(extra_box, height=3, activestyle="none")
+        self.extra_list.pack(fill="both", expand=True)
         self.extra_buttons = []
         for row, (text, command) in enumerate((("Aggiungi file…", self.add_extra_files),
                                                ("Aggiungi cartella…", self.add_extra_folder),
                                                ("Rimuovi", self.remove_extra))):
-            button = ttk.Button(extras, text=text, command=command)
-            button.grid(row=row, column=1, sticky="ew", padx=(6, 0), pady=1)
+            button = ttk.Button(self.extras_body, text=text, command=command)
+            button.grid(row=row, column=1, sticky="ew", padx=(8, 0), pady=(0, 4))
             self.extra_buttons.append(button)
-        ttk.Label(extras, foreground="gray", wraplength=640, justify="left",
+        ttk.Label(self.extras_body, style="Card.Muted.TLabel", wraplength=640, justify="left",
                   text="Solo con l'installazione completa: i file vengono inseriti nel filesystem "
                        "del firmware prima del caricamento. Un file va nella radice; di una cartella "
                        "si copia il contenuto. Un file con lo stesso percorso sostituisce quello "
-                       "del firmware.").grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
+                       "del firmware.").grid(row=3, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
-        self.flash_button = ttk.Button(frame, text="Carica firmware", command=self.start_flash)
-        self.flash_button.grid(row=8, column=0, columnspan=3, sticky="ew", pady=4)
-        self.flash_button.state(["disabled"])
+        frame = self.tabs.add("Log", scroll=False)
+        frame.configure(padding=(20, 12, 20, 12))
+        log_box, self.log_text = theme.log_widget(frame, height=10)
+        log_box.pack(fill="both", expand=True)
 
-        self.progress = ttk.Progressbar(frame, maximum=100)
-        self.progress.grid(row=9, column=0, columnspan=3, sticky="ew", pady=4)
-        ttk.Label(frame, textvariable=self.status_var).grid(
-            row=10, column=0, columnspan=3, sticky="w")
-
-        self.log_text = ScrolledText(frame, height=10, state="disabled", font=("Consolas", 9))
-        self.log_text.grid(row=11, column=0, columnspan=3, sticky="nsew", pady=(8, 0))
-        frame.rowconfigure(11, weight=1)
-        self.mode_changed()
+        # misure prese con i file aggiuntivi visibili: accendendo l'interruttore
+        # la finestra non deve cambiare altezza
+        self.tabs.fit()
+        self.extras_toggled()
 
     def refresh_chips(self, select=None):
         """Elenco "Chip": i chip che hanno almeno un firmware disponibile."""
@@ -338,6 +377,18 @@ class InstallerApp(tk.Tk):
         for button in self.extra_buttons:
             button.state(["!disabled"] if enabled else ["disabled"])
         self.extra_list.configure(state="normal" if enabled else "disabled")
+        self.extras_switch.state(["disabled"] if self.busy else ["!disabled"])
+
+    def extras_toggled(self):
+        """Interruttore dei file aggiuntivi: spento li nasconde e non li carica."""
+        if self.extras_var.get():
+            self.extras_body.grid()
+        else:
+            self.extras_body.grid_remove()
+        if self.config_data.get("extras", False) != self.extras_var.get():
+            self.config_data["extras"] = self.extras_var.get()
+            save_config(self.config_data)
+        self.mode_changed()
 
     def refresh_extras(self):
         self.extra_list.configure(state="normal")
@@ -389,7 +440,7 @@ class InstallerApp(tk.Tk):
         self.detected = None
 
     def refresh_ports(self):
-        self.ports = sorted(list_ports.comports(), key=port_number)
+        self.ports = esp_device.esp_ports()
         labels = [f"{p.device}  —  {p.description}" for p in self.ports]
         self.port_box["values"] = labels
         self.port_auto = True
@@ -397,7 +448,9 @@ class InstallerApp(tk.Tk):
         self.detected = None
         if not labels:
             self.port_var.set("")
+            self.status_var.set("Nessuna scheda ESP32 trovata: collegala e premi Aggiorna")
             return
+        self.status_var.set(f"Porte trovate: {', '.join(p.device for p in self.ports)}")
         guess = guess_port(self.ports)
         self.port_box.current(guess if guess is not None else 0)
         # poi ascolta le porte USB: quella su cui l'ESP32 sta scrivendo vince
@@ -442,7 +495,7 @@ class InstallerApp(tk.Tk):
     def load_server(self):
         url = clean_url(self.url_var.get())
         if not url:
-            messagebox.showwarning(APP_TITLE, "Inserisci l'URL del server firmware")
+            theme.showwarning(APP_TITLE, "Inserisci l'URL del server firmware")
             return
         self.url_var.set(url)
         self.set_busy(True)
@@ -492,14 +545,15 @@ class InstallerApp(tk.Tk):
         self.refresh_chips()
         self.status_var.set("Server non raggiungibile")
         self.append_log(f"\nERRORE lettura {url}: {error}")
-        messagebox.showerror(APP_TITLE, f"Impossibile leggere l'elenco firmware da\n{url}\n\n{error}")
+        theme.showerror(APP_TITLE, f"Impossibile leggere l'elenco firmware da\n{url}\n\n{error}")
 
     # ── Rilevamento chip ──────────────────────────────────────────────────────
 
     def start_detect(self):
         port = self.selected_port()
         if not port:
-            messagebox.showwarning(APP_TITLE, "Collega la scheda e seleziona la porta COM.")
+            theme.showwarning(APP_TITLE, "Collega la scheda e seleziona la porta COM.\n"
+                              "Se la porta non compare nell'elenco, premi Aggiorna.")
             return
         self.set_busy(True)
         self.progress["value"] = 0
@@ -530,7 +584,7 @@ class InstallerApp(tk.Tk):
             self.status_var.set(f"Rilevato {chip_label(chip)} su {port}")
             error = f"Sul server non c'è nessun firmware per {chip_label(chip)}."
             self.append_log(f"ATTENZIONE: {error}")
-            messagebox.showwarning(APP_TITLE, error)
+            theme.showwarning(APP_TITLE, error)
 
     def detect_error(self, error):
         self.set_busy(False)
@@ -540,22 +594,23 @@ class InstallerApp(tk.Tk):
         hint = connect_hint(error, "Rileva chip")
         if is_connect_error(error):
             self.append_log(hint)
-        messagebox.showerror(APP_TITLE, f"Impossibile leggere il chip:\n{error}\n\n{hint}")
+        theme.showerror(APP_TITLE, f"Impossibile leggere il chip:\n{error}\n\n{hint}")
 
     # ── Flash ─────────────────────────────────────────────────────────────────
 
     def start_flash(self):
         entry = self.selected_entry()
         if not entry:
-            messagebox.showwarning(APP_TITLE, "Scegli chip e scheda da caricare.")
+            theme.showwarning(APP_TITLE, "Scegli chip e scheda da caricare.")
             return
         port = self.selected_port()
         if not port:
-            messagebox.showwarning(APP_TITLE, "Collega la scheda e seleziona la porta COM.")
+            theme.showwarning(APP_TITLE, "Collega la scheda e seleziona la porta COM.\n"
+                              "Se la porta non compare nell'elenco, premi Aggiorna.")
             return
         product, target = entry
         if self.detected and self.detected[0] == port and self.detected[1] != target["chip"]:
-            messagebox.showerror(APP_TITLE, f"Sulla {port} è collegato un "
+            theme.showerror(APP_TITLE, f"Sulla {port} è collegato un "
                                  f"{chip_label(self.detected[1])}, ma il firmware scelto è per "
                                  f"{chip_label(target['chip'])}.")
             return
@@ -565,15 +620,15 @@ class InstallerApp(tk.Tk):
         full = self.mode_var.get() == MODE_FULL
         manifest = target["manifest"]
         images = [img for img in manifest["images"] if full or img["role"] != "filesystem"]
-        extras = list(self.extras) if full else []
+        extras = list(self.extras) if full and self.extras_var.get() else []
         if full:
             fs = next((img for img in images if img["role"] == "filesystem"), None)
             if fs is None and extras:
-                messagebox.showerror(APP_TITLE, "Questo pacchetto non contiene il filesystem: "
+                theme.showerror(APP_TITLE, "Questo pacchetto non contiene il filesystem: "
                                      "i file aggiuntivi non si possono caricare.")
                 return
             if fs is None:
-                if not messagebox.askyesno(APP_TITLE, "Questo pacchetto non contiene il "
+                if not theme.askyesno(APP_TITLE, "Questo pacchetto non contiene il "
                                            "filesystem: dopo la cancellazione le pagine web "
                                            "mancheranno. Continuare?"):
                     return
@@ -584,10 +639,10 @@ class InstallerApp(tk.Tk):
                     files = fs_image.collect(extras)
                     fs_image.check_names(fs_image.fs_type(fs["file"]), files)
                 except RuntimeError as e:
-                    messagebox.showerror(APP_TITLE, f"File aggiuntivi non validi:\n{e}")
+                    theme.showerror(APP_TITLE, f"File aggiuntivi non validi:\n{e}")
                     return
                 added = f"\n\nVerranno aggiunti {len(files)} file al filesystem."
-            if not messagebox.askyesno(APP_TITLE, f"Installazione completa di {product['name']} "
+            if not theme.askyesno(APP_TITLE, f"Installazione completa di {product['name']} "
                                        f"({target_label(target)}) su {port}:\n"
                                        "tutta la flash verrà cancellata, comprese "
                                        f"configurazione e WiFi.{added}\n\nContinuare?"):
@@ -599,6 +654,7 @@ class InstallerApp(tk.Tk):
         package = dict(manifest, chip=target["chip"], url=target["url"],
                        cache=re.sub(r"[^\w.-]+", "_", target["url"]).strip("_"))
         self.set_busy(True)
+        self.tabs.select("Log")  # i messaggi del caricamento compaiono nel log
         self.progress["value"] = 0
         self.status_var.set(f"Download {package['name']} {package['version']}…")
         threading.Thread(target=self.run_flash, daemon=True,
@@ -723,12 +779,13 @@ class InstallerApp(tk.Tk):
             hint = connect_hint(error)
             if is_connect_error(error):
                 self.append_log(hint)
-            messagebox.showerror(APP_TITLE, f"Caricamento non riuscito:\n{error}\n\n{hint}")
+            theme.showerror(APP_TITLE, f"Caricamento non riuscito:\n{error}\n\n{hint}")
         else:
             self.progress["value"] = 100
             self.status_var.set("Completato — la scheda è stata riavviata")
             self.append_log("\nCompletato.")
-            messagebox.showinfo(APP_TITLE, "Firmware caricato correttamente.")
+            theme.showinfo(APP_TITLE, "Firmware caricato correttamente.")
+            self.tabs.select("Dispositivo")  # pronto per la scheda successiva
 
 
 if __name__ == "__main__":

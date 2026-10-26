@@ -18,15 +18,15 @@ import threading
 import tkinter as tk
 import urllib.request
 from pathlib import Path
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import filedialog, ttk
 from urllib.parse import urljoin
 
-from serial.tools import list_ports
 
 import catalog
 import esp_device
+import theme
 from catalog import CHIPS, INDEX_FILE, chip_label, target_label
-from esp_device import connect_hint, detected_label, guess_port, is_connect_error, port_number
+from esp_device import connect_hint, detected_label, guess_port, is_connect_error
 
 APP_TITLE = "ST ESP32 Manifest Creator"
 HTTP_TIMEOUT = 20
@@ -60,7 +60,7 @@ def check_folder(url, target):
     return status
 
 
-class TargetDialog(simpledialog.Dialog):
+class TargetDialog(theme.Dialog):
     """Chip, tipo di scheda e cartella remota di una combinazione supportata."""
 
     def __init__(self, parent, title, target, boards):
@@ -72,24 +72,27 @@ class TargetDialog(simpledialog.Dialog):
     def body(self, master):
         master.columnconfigure(1, weight=1)
         labels = [f"{label}  ({chip})" for chip, label in CHIPS.items()]
-        self.chip_box = ttk.Combobox(master, values=labels, state="readonly", width=28)
+        self.chip_box = ttk.Combobox(master, values=labels, state="readonly", width=28,
+                                     style="Page.TCombobox")
         chips = list(CHIPS)
         self.chip_box.current(chips.index(self.target["chip"])
                               if self.target.get("chip") in chips else 0)
         self.board_var = tk.StringVar(value=self.target.get("board", ""))
         self.folder_var = tk.StringVar(value=self.target.get("folder", ""))
 
-        ttk.Label(master, text="Chip").grid(row=0, column=0, sticky="w", pady=4)
+        ttk.Label(master, text="Chip").grid(row=0, column=0, sticky="w", pady=4, padx=(0, 12))
         self.chip_box.grid(row=0, column=1, columnspan=2, sticky="ew", pady=4)
-        ttk.Label(master, text="Tipo scheda").grid(row=1, column=0, sticky="w", pady=4)
-        ttk.Combobox(master, textvariable=self.board_var, values=self.boards, width=28).grid(
+        ttk.Label(master, text="Tipo scheda").grid(row=1, column=0, sticky="w", pady=4, padx=(0, 12))
+        ttk.Combobox(master, textvariable=self.board_var, values=self.boards, width=28,
+                     style="Page.TCombobox").grid(
             row=1, column=1, columnspan=2, sticky="ew", pady=4)
-        ttk.Label(master, text="Cartella remota").grid(row=2, column=0, sticky="w", pady=4)
-        ttk.Entry(master, textvariable=self.folder_var, width=40).grid(
+        ttk.Label(master, text="Cartella remota").grid(row=2, column=0, sticky="w", pady=4,
+                                                         padx=(0, 12))
+        ttk.Entry(master, textvariable=self.folder_var, width=40, style="Page.TEntry").grid(
             row=2, column=1, sticky="ew", pady=4)
-        ttk.Button(master, text="Da cartella locale…", command=self.pick_local).grid(
-            row=2, column=2, padx=(6, 0), pady=4)
-        ttk.Label(master, foreground="gray", justify="left",
+        ttk.Button(master, text="Da cartella locale…", command=self.pick_local,
+                   style="Page.TButton").grid(row=2, column=2, padx=(8, 0), pady=4)
+        ttk.Label(master, style="Muted.TLabel", justify="left",
                   text="Relativa all'URL base del server (es. moduloPompa)\n"
                        "oppure URL completo (es. https://server/fw/moduloPompa)").grid(
             row=3, column=1, columnspan=2, sticky="w")
@@ -107,7 +110,7 @@ class TargetDialog(simpledialog.Dialog):
         try:
             manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:
-            messagebox.showwarning(APP_TITLE, f"manifest.json non leggibile:\n{e}", parent=self)
+            theme.showwarning(APP_TITLE, f"manifest.json non leggibile:\n{e}", parent=self)
             return
         if manifest.get("chip") in CHIPS:
             self.chip_box.current(list(CHIPS).index(manifest["chip"]))
@@ -116,10 +119,10 @@ class TargetDialog(simpledialog.Dialog):
 
     def validate(self):
         if not self.board_var.get().strip():
-            messagebox.showwarning(APP_TITLE, "Indica il tipo di scheda.", parent=self)
+            theme.showwarning(APP_TITLE, "Indica il tipo di scheda.", parent=self)
             return False
         if not self.folder_var.get().strip():
-            messagebox.showwarning(APP_TITLE, "Indica la cartella remota.", parent=self)
+            theme.showwarning(APP_TITLE, "Indica la cartella remota.", parent=self)
             return False
         return True
 
@@ -132,7 +135,8 @@ class TargetDialog(simpledialog.Dialog):
 class CreatorApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.minsize(820, 480)
+        self.minsize(860, 560)
+        theme.apply(self)
 
         self.events = queue.Queue()
         self.catalog = catalog.new_catalog()
@@ -148,6 +152,7 @@ class CreatorApp(tk.Tk):
 
         self.build_ui()
         self.refresh_ports()
+        theme.center(self)
         self.protocol("WM_DELETE_WINDOW", self.close)
         self.after(100, self.poll_events)
 
@@ -160,51 +165,59 @@ class CreatorApp(tk.Tk):
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def build_ui(self):
-        frame = ttk.Frame(self, padding=12)
+        frame = ttk.Frame(self, padding=(20, 16))
         frame.pack(fill="both", expand=True)
         frame.columnconfigure(1, weight=1)
         frame.rowconfigure(3, weight=1)
 
-        device = ttk.LabelFrame(frame, text="ESP32 collegato", padding=8)
-        device.grid(row=2, column=0, columnspan=3, sticky="ew", pady=4)
+        device = theme.card(frame, "ESP32 collegato")
+        device.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(8, 0))
         device.columnconfigure(1, weight=1)
-        ttk.Label(device, text="Porta COM").grid(row=0, column=0, sticky="w", pady=2)
+        ttk.Label(device, text="Porta COM", style="Card.TLabel").grid(
+            row=0, column=0, sticky="w", pady=4, padx=(0, 12))
         self.port_box = ttk.Combobox(device, state="readonly")
-        self.port_box.grid(row=0, column=1, sticky="ew", pady=2)
+        self.port_box.grid(row=0, column=1, sticky="ew", pady=4)
         ttk.Button(device, text="Aggiorna", command=self.refresh_ports).grid(
-            row=0, column=2, padx=(6, 0), pady=2)
+            row=0, column=2, sticky="ew", padx=(8, 0), pady=4)
         self.detect_button = ttk.Button(device, text="Rileva", command=self.start_detect)
-        self.detect_button.grid(row=0, column=3, padx=(6, 0), pady=2)
-        ttk.Label(device, text="Chip rilevati").grid(row=1, column=0, sticky="w", pady=2)
+        self.detect_button.grid(row=0, column=3, sticky="ew", padx=(8, 0), pady=4)
+        ttk.Label(device, text="Chip rilevati", style="Card.TLabel").grid(
+            row=1, column=0, sticky="w", pady=4, padx=(0, 12))
         self.detected_box = ttk.Combobox(device, state="readonly")
-        self.detected_box.grid(row=1, column=1, columnspan=2, sticky="ew", pady=2)
+        self.detected_box.grid(row=1, column=1, columnspan=2, sticky="ew", pady=4)
         ttk.Button(device, text="Nuova scheda", command=self.add_target).grid(
-            row=1, column=3, padx=(6, 0), pady=2)
+            row=1, column=3, sticky="ew", padx=(8, 0), pady=4)
         self.refresh_detected()
 
-        ttk.Label(frame, text="Server").grid(row=0, column=0, sticky="w", pady=4)
-        ttk.Entry(frame, textvariable=self.url_var).grid(row=0, column=1, sticky="ew", pady=4)
-        ttk.Button(frame, text="Apri dal server", command=self.open_server).grid(
-            row=0, column=2, padx=(6, 0), pady=4)
+        ttk.Label(frame, text="Server").grid(row=0, column=0, sticky="w", pady=4, padx=(0, 12))
+        ttk.Entry(frame, textvariable=self.url_var, style="Page.TEntry").grid(
+            row=0, column=1, sticky="ew", pady=4)
+        ttk.Button(frame, text="Apri dal server", command=self.open_server,
+                   style="Page.TButton").grid(row=0, column=2, padx=(8, 0), pady=4)
 
         files = ttk.Frame(frame)
         files.grid(row=1, column=0, columnspan=3, sticky="w", pady=4)
         for text, command in (("Nuovo", self.new), ("Apri file…", self.open_file),
                               ("Salva", self.save), ("Salva con nome…", self.save_as)):
-            ttk.Button(files, text=text, command=command).pack(side="left", padx=(0, 6))
+            ttk.Button(files, text=text, command=command,
+                       style="Primary.TButton" if text == "Salva" else "Page.TButton").pack(
+                side="left", padx=(0, 6))
 
         panes = ttk.PanedWindow(frame, orient="horizontal")
-        panes.grid(row=3, column=0, columnspan=3, sticky="nsew", pady=8)
+        panes.grid(row=3, column=0, columnspan=3, sticky="nsew", pady=12)
 
-        products = ttk.LabelFrame(panes, text="Prodotti", padding=8)
+        products = theme.card(panes, "Prodotti")
         products.rowconfigure(0, weight=1)
         products.columnconfigure(0, weight=1)
-        self.product_list = tk.Listbox(products, exportselection=False, width=24)
-        self.product_list.grid(row=0, column=0, sticky="nsew")
+        product_box = theme.field_box(products)
+        product_box.grid(row=0, column=0, sticky="nsew")
+        self.product_list = tk.Listbox(product_box, exportselection=False, width=24,
+                                       activestyle="none")
+        self.product_list.pack(fill="both", expand=True)
         self.product_list.bind("<<ListboxSelect>>", lambda _e: self.refresh_targets())
         self.product_list.bind("<Double-1>", lambda _e: self.rename_product())
-        buttons = ttk.Frame(products)
-        buttons.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        buttons = ttk.Frame(products, style="Inner.TFrame")
+        buttons.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         for text, command in (("Aggiungi", self.add_product), ("Rinomina", self.rename_product),
                               ("Elimina", self.delete_product), ("▲", lambda: self.move_product(-1)),
                               ("▼", lambda: self.move_product(1))):
@@ -212,7 +225,7 @@ class CreatorApp(tk.Tk):
                        width=3 if len(text) == 1 else None).pack(side="left", padx=(0, 4))
         panes.add(products, weight=1)
 
-        targets = ttk.LabelFrame(panes, text="Chip e schede supportati", padding=8)
+        targets = theme.card(panes, "Chip e schede supportati")
         targets.rowconfigure(0, weight=1)
         targets.columnconfigure(0, weight=1)
         columns = {"chip": ("Chip", 90), "board": ("Tipo scheda", 130),
@@ -220,13 +233,13 @@ class CreatorApp(tk.Tk):
         self.target_tree = ttk.Treeview(targets, columns=list(columns), show="headings",
                                         selectmode="browse")
         for key, (text, width) in columns.items():
-            self.target_tree.heading(key, text=text)
+            self.target_tree.heading(key, text=text, anchor="w")
             self.target_tree.column(key, width=width, stretch=True)
         self.target_tree.grid(row=0, column=0, sticky="nsew")
         self.target_tree.bind("<Double-1>", lambda _e: self.edit_target())
-        self.target_tree.tag_configure("error", foreground="red")
-        buttons = ttk.Frame(targets)
-        buttons.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        self.target_tree.tag_configure("error", foreground="#dc2626")
+        buttons = ttk.Frame(targets, style="Inner.TFrame")
+        buttons.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         for text, command in (("Aggiungi", self.add_target), ("Modifica", self.edit_target),
                               ("Elimina", self.delete_target)):
             ttk.Button(buttons, text=text, command=command).pack(side="left", padx=(0, 4))
@@ -234,8 +247,9 @@ class CreatorApp(tk.Tk):
         self.verify_button.pack(side="right")
         panes.add(targets, weight=3)
 
-        ttk.Label(frame, textvariable=self.status_var).grid(
-            row=4, column=0, columnspan=3, sticky="w")
+        ttk.Label(frame, textvariable=self.status_var, style="Status.TLabel").grid(
+            row=4, column=0, columnspan=2, sticky="w")
+        theme.brand(frame).grid(row=4, column=2, sticky="e")
 
     def refresh(self, select=None):
         """Ridisegna l'elenco prodotti; select = indice da selezionare."""
@@ -290,12 +304,12 @@ class CreatorApp(tk.Tk):
     # ── Prodotti ──────────────────────────────────────────────────────────────
 
     def ask_product_name(self, title, initial=""):
-        name = simpledialog.askstring(APP_TITLE, title, initialvalue=initial, parent=self)
+        name = theme.askstring(APP_TITLE, title, initialvalue=initial, parent=self)
         name = (name or "").strip()
         if not name:
             return None
         if any(p["name"] == name for p in self.catalog["products"] if p["name"] != initial):
-            messagebox.showwarning(APP_TITLE, f"Esiste già un prodotto «{name}».")
+            theme.showwarning(APP_TITLE, f"Esiste già un prodotto «{name}».")
             return None
         return name
 
@@ -316,7 +330,7 @@ class CreatorApp(tk.Tk):
 
     def delete_product(self):
         product = self.selected_product()
-        if product and messagebox.askyesno(APP_TITLE, f"Eliminare «{product['name']}» "
+        if product and theme.askyesno(APP_TITLE, f"Eliminare «{product['name']}» "
                                            f"e le sue {len(product['targets'])} schede?"):
             self.catalog["products"].remove(product)
             self.changed()
@@ -334,7 +348,7 @@ class CreatorApp(tk.Tk):
     def add_target(self):
         product = self.selected_product()
         if not product:
-            messagebox.showinfo(APP_TITLE, "Aggiungi o seleziona prima un prodotto.")
+            theme.showinfo(APP_TITLE, "Aggiungi o seleziona prima un prodotto.")
             return
         # il chip proposto è quello scelto tra i rilevati, se ce n'è uno
         info = self.selected_detected()
@@ -363,7 +377,7 @@ class CreatorApp(tk.Tk):
     def check_unique(self, product, target, skip=None):
         for i, other in enumerate(product["targets"]):
             if i != skip and (other["chip"], other["board"]) == (target["chip"], target["board"]):
-                messagebox.showwarning(APP_TITLE, f"{target_label(target)} è già presente "
+                theme.showwarning(APP_TITLE, f"{target_label(target)} è già presente "
                                        f"in «{product['name']}».")
                 return False
         return True
@@ -371,7 +385,7 @@ class CreatorApp(tk.Tk):
     # ── ESP32 collegato ───────────────────────────────────────────────────────
 
     def refresh_ports(self):
-        self.ports = sorted(list_ports.comports(), key=port_number)
+        self.ports = esp_device.esp_ports()
         self.port_box["values"] = [f"{p.device}  —  {p.description}" for p in self.ports]
         if not self.ports:
             self.port_box.set("")
@@ -394,7 +408,8 @@ class CreatorApp(tk.Tk):
     def start_detect(self):
         index = self.port_box.current()
         if index < 0:
-            messagebox.showwarning(APP_TITLE, "Collega la scheda e seleziona la porta COM.")
+            theme.showwarning(APP_TITLE, "Collega la scheda e seleziona la porta COM.\n"
+                              "Se la porta non compare nell'elenco, premi Aggiorna.")
             return
         port = self.ports[index].device
         self.detect_button.state(["disabled"])
@@ -427,12 +442,12 @@ class CreatorApp(tk.Tk):
         self.detect_button.state(["!disabled"])
         self.status_var.set("Chip non rilevato")
         if not is_connect_error(error):
-            messagebox.showerror(APP_TITLE, f"Impossibile leggere il chip:\n{error}\n\n"
+            theme.showerror(APP_TITLE, f"Impossibile leggere il chip:\n{error}\n\n"
                                  f"{connect_hint(error)}")
             return
         # schede senza reset automatico (RTS/DTR non collegati a EN/IO0):
         # BOOT + RESET a mano, poi Riprova
-        if messagebox.askretrycancel(APP_TITLE, "L'ESP32 non ha risposto.\n\n"
+        if theme.askretrycancel(APP_TITLE, "L'ESP32 non ha risposto.\n\n"
                                      f"{connect_hint(error, 'Riprova', baud_tip=False)}", icon="warning"):
             self.start_detect()
 
@@ -441,7 +456,7 @@ class CreatorApp(tk.Tk):
     def verify(self):
         base = catalog.clean_url(self.url_var.get())
         if not base:
-            messagebox.showwarning(APP_TITLE, "Inserisci l'URL del server.")
+            theme.showwarning(APP_TITLE, "Inserisci l'URL del server.")
             return
         self.url_var.set(base)
         checks = {catalog.folder_url(base, t["folder"]): t
@@ -474,7 +489,7 @@ class CreatorApp(tk.Tk):
                 elif kind == "server_catalog":
                     self.loaded(*value)
                 elif kind == "server_error":
-                    messagebox.showerror(APP_TITLE, value)
+                    theme.showerror(APP_TITLE, value)
                     self.status_var.set("Lettura dal server non riuscita")
                 elif kind == "log":  # avanzamento di esptool durante il rilevamento
                     if value.strip(". \n"):  # "Connecting" arriva un punto alla volta
@@ -492,7 +507,7 @@ class CreatorApp(tk.Tk):
     def confirm_discard(self):
         if not self.dirty:
             return True
-        answer = messagebox.askyesnocancel(APP_TITLE, "Salvare le modifiche al catalogo?")
+        answer = theme.askyesnocancel(APP_TITLE, "Salvare le modifiche al catalogo?")
         if answer is None:
             return False
         return self.save() if answer else True
@@ -522,7 +537,7 @@ class CreatorApp(tk.Tk):
         try:
             data = catalog.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:
-            messagebox.showerror(APP_TITLE, f"Impossibile aprire {path}:\n{e}")
+            theme.showerror(APP_TITLE, f"Impossibile aprire {path}:\n{e}")
             self.refresh()
             return
         self.loaded(data, path, str(path))
@@ -532,7 +547,7 @@ class CreatorApp(tk.Tk):
             return
         base = catalog.clean_url(self.url_var.get())
         if not base:
-            messagebox.showwarning(APP_TITLE, "Inserisci l'URL del server.")
+            theme.showwarning(APP_TITLE, "Inserisci l'URL del server.")
             return
         self.url_var.set(base)
         url = urljoin(catalog.base_url(base), INDEX_FILE)
@@ -553,14 +568,14 @@ class CreatorApp(tk.Tk):
         if self.path is None:
             return self.save_as()
         errors = catalog.validate(self.catalog)
-        if errors and not messagebox.askyesno(
+        if errors and not theme.askyesno(
                 APP_TITLE, "Il catalogo ha dei problemi:\n\n• " + "\n• ".join(errors[:15])
                 + "\n\nSalvare comunque?"):
             return False
         try:
             self.path.write_text(catalog.dumps(self.catalog), encoding="utf-8")
         except OSError as e:
-            messagebox.showerror(APP_TITLE, f"Impossibile salvare {self.path}:\n{e}")
+            theme.showerror(APP_TITLE, f"Impossibile salvare {self.path}:\n{e}")
             return False
         self.dirty = False
         self.update_title()
