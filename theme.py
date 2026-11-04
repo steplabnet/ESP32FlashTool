@@ -312,6 +312,7 @@ def apply(root):
     style.configure("TLabel", background=BG, foreground=TEXT)
     style.configure("Muted.TLabel", background=BG, foreground=MUTED, font=(family, 9))
     style.configure("Status.TLabel", background=BG, foreground=MUTED)
+    style.configure("Alert.TLabel", background=BG, foreground=ERROR, font=semibold)
     style.configure("Link.TLabel", background=BG, foreground=ACCENT, font=(family, 9))
     style.configure("LinkHover.TLabel", background=BG, foreground=ACCENT_HOVER,
                     font=(family, 9, "underline"))

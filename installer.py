@@ -14,7 +14,9 @@ scheda: ogni scheda dell'elenco è un prodotto del catalogo con la sua cartella.
 
 L'URL base e le scelte della GUI vengono salvati in config.json accanto
 all'eseguibile. I file scaricati sono verificati con sha256 e tenuti nella
-cartella cache, sempre accanto all'eseguibile.
+cartella cache, sempre accanto all'eseguibile, con index.json e il manifest
+dei firmware scaricati: senza connessione si usano quelli (in alto a destra
+compare "Offline").
 Il flash avviene con esptool, nello stesso processo.
 """
 
@@ -46,6 +48,7 @@ APP_TITLE = "ST ESP32 Flash Tool"
 BAUD_RATES = ["921600", "460800", "230400", "115200"]
 DEFAULT_BAUD = "460800"
 HTTP_TIMEOUT = 20
+MANIFEST_FILE = "manifest.json"
 
 # Server senza index.json: una sottocartella per prodotto (maiuscole/minuscole contano).
 LEGACY_FOLDERS = {
@@ -101,6 +104,30 @@ def save_config(config):
         FALLBACK_CONFIG_FILE.write_text(text, encoding="utf-8")
 
 
+def cache_name(url):
+    """Nome di file o cartella della cache per un URL (ogni server ha la sua)."""
+    return re.sub(r"[^\w.-]+", "_", url).strip("_")
+
+
+def index_cache_file(base):
+    return f"{cache_name(base)}_{INDEX_FILE}"
+
+
+def save_cached(path, text):
+    """Scrive un file della cache; se non si può, si lavora comunque senza."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    except OSError:
+        pass
+
+
+def is_cached(path, img):
+    """True se il file in cache esiste e ha lo sha256 del manifest."""
+    expected = img.get("sha256")
+    return bool(expected) and path.exists() and sha256_of(path) == expected
+
+
 def fetch(url):
     request = urllib.request.Request(url, headers={"User-Agent": APP_TITLE})
     return urllib.request.urlopen(request, timeout=HTTP_TIMEOUT)
@@ -120,14 +147,14 @@ def load_products(url):
     base = base_url(url)
     try:
         with fetch(urljoin(base, INDEX_FILE)) as response:
-            products = catalog.loads(response.read().decode("utf-8"))["products"]
+            text = response.read().decode("utf-8")
+        products = catalog.loads(text)["products"]
+        save_cached(cache_dir() / index_cache_file(base), text)
         source = INDEX_FILE
     except urllib.error.HTTPError as e:
         if e.code != 404:
             raise
-        # chip None: preso dal manifest della cartella
-        products = [{"name": label, "targets": [{"chip": None, "board": "", "folder": folder}]}
-                    for folder, label in LEGACY_FOLDERS.items()]
+        products = legacy_products()
         source = f"cartelle predefinite ({INDEX_FILE} assente)"
 
     for product in products:
@@ -135,17 +162,63 @@ def load_products(url):
             target["url"] = catalog.folder_url(base, target["folder"])
             target["manifest"] = None
             try:
-                manifest = fetch_json(urljoin(target["url"], "manifest.json"))
+                manifest = fetch_json(urljoin(target["url"], MANIFEST_FILE))
             except Exception as e:
                 target["error"] = f"{type(e).__name__}: {e}"
                 continue
-            if target["chip"] is None:
-                target["chip"] = manifest.get("chip", "esp32")
-            elif manifest.get("chip", target["chip"]) != target["chip"]:
-                target["error"] = f"il firmware in {target['folder']} è per {chip_label(manifest['chip'])}"
-                continue
-            target["manifest"] = manifest
+            use_manifest(target, manifest)
     return products, source
+
+
+def load_cached_products(url):
+    """Come load_products, ma dalla cache: per lavorare senza connessione.
+
+    Sono elencate solo le schede con il firmware già scaricato e integro (tutte
+    le immagini tranne, al più, il filesystem); in "cached" i file presenti.
+    """
+    base = base_url(url)
+    root = cache_dir()
+    try:
+        text = (root / index_cache_file(base)).read_text(encoding="utf-8")
+        products = catalog.loads(text)["products"]
+    except (OSError, ValueError):
+        products = legacy_products()
+
+    for product in products:
+        for target in product["targets"]:
+            target["url"] = catalog.folder_url(base, target["folder"])
+            target["manifest"] = None
+            folder = root / cache_name(target["url"])
+            try:
+                manifest = json.loads((folder / MANIFEST_FILE).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                target["error"] = "non presente in cache"
+                continue
+            cached = {img["file"] for img in manifest["images"]
+                      if is_cached(folder / img["file"], img)}
+            if any(img["role"] != "filesystem" and img["file"] not in cached
+                   for img in manifest["images"]):
+                target["error"] = "firmware in cache incompleto"
+                continue
+            target["cached"] = cached
+            use_manifest(target, manifest)
+    return products, "cache (offline)"
+
+
+def legacy_products():
+    # chip None: preso dal manifest della cartella
+    return [{"name": label, "targets": [{"chip": None, "board": "", "folder": folder}]}
+            for folder, label in LEGACY_FOLDERS.items()]
+
+
+def use_manifest(target, manifest):
+    """Assegna il manifest alla scheda se è per il suo chip, altrimenti scrive il motivo."""
+    if target["chip"] is None:
+        target["chip"] = manifest.get("chip", "esp32")
+    elif manifest.get("chip", target["chip"]) != target["chip"]:
+        target["error"] = f"il firmware in {target['folder']} è per {chip_label(manifest['chip'])}"
+        return
+    target["manifest"] = manifest
 
 
 def describe(target):
@@ -236,6 +309,10 @@ class InstallerApp(tk.Tk):
         # il resto è diviso in schede, ognuna scorre se la finestra è troppo bassa
         self.tabs = theme.Tabs(self)
         self.tabs.pack(fill="both", expand=True)
+        # in alto a destra, sulla riga delle schede: visibile solo senza connessione
+        self.offline_label = ttk.Label(self.tabs, text="Offline", style="Alert.TLabel")
+        self.offline_label.grid(row=0, column=0, sticky="e", padx=(0, 20), pady=(8, 0))
+        self.offline_label.grid_remove()
 
         frame = self.tabs.add("Dispositivo")
         frame.configure(padding=(20, 12, 20, 12))
@@ -503,20 +580,35 @@ class InstallerApp(tk.Tk):
         threading.Thread(target=self.run_load_server, args=(url,), daemon=True).start()
 
     def run_load_server(self, url):
+        offline = False
         try:
             products, source = load_products(url)
         except Exception as e:
-            self.events.put(("server_error", (url, f"{INDEX_FILE}: {type(e).__name__}: {e}")))
-            return
+            error = f"{INDEX_FILE}: {type(e).__name__}: {e}"
+            # server non raggiungibile: si usano i firmware già in cache, se ce ne sono
+            try:
+                products, source = load_cached_products(url)
+            except Exception:
+                products = []
+            if not firmware_entries(products):
+                self.events.put(("server_error", (url, error)))
+                return
+            self.events.put(("log", f"\nServer {url} non raggiungibile ({error}): "
+                                    "uso i firmware in cache"))
+            offline = True
         if firmware_entries(products):
-            self.events.put(("packages", (url, products, source)))
+            self.events.put(("packages", (url, products, source, offline)))
         else:
             self.events.put(("server_error", (url, "\n".join(
                 f"{p['name']} / {describe(t)}: {t.get('error')}"
                 for p in products for t in p["targets"]) or "nessun prodotto nel catalogo")))
 
-    def packages_loaded(self, url, products, source):
+    def packages_loaded(self, url, products, source, offline):
         self.entries = firmware_entries(products)
+        if offline:
+            self.offline_label.grid()
+        else:
+            self.offline_label.grid_remove()
         # salva solo un URL scelto dall'utente: con quello predefinito resta
         # valido il default della versione installata
         if base_url(url) == base_url(DEFAULT_SERVER_URL):
@@ -537,10 +629,14 @@ class InstallerApp(tk.Tk):
         self.set_busy(False)
         # se è già stato rilevato un chip, l'elenco riparte da quello
         self.refresh_chips(select=self.detected[1] if self.detected else None)
-        self.status_var.set(f"{len(self.entries)} firmware disponibili su {url}")
+        if offline:
+            self.status_var.set(f"Offline — {len(self.entries)} firmware disponibili in cache")
+        else:
+            self.status_var.set(f"{len(self.entries)} firmware disponibili su {url}")
 
     def server_error(self, url, error):
         self.entries = []
+        self.offline_label.grid_remove()
         self.set_busy(False)
         self.refresh_chips()
         self.status_var.set("Server non raggiungibile")
@@ -620,6 +716,13 @@ class InstallerApp(tk.Tk):
         full = self.mode_var.get() == MODE_FULL
         manifest = target["manifest"]
         images = [img for img in manifest["images"] if full or img["role"] != "filesystem"]
+        if "cached" in target:  # elenco letto dalla cache, senza connessione
+            missing = [img["file"] for img in images if img["file"] not in target["cached"]]
+            if missing:
+                theme.showerror(APP_TITLE, f"Offline: in cache manca {', '.join(missing)}.\n\n"
+                                     "Per l'installazione completa serve la connessione; "
+                                     "l'aggiornamento firmware si può fare.")
+                return
         extras = list(self.extras) if full and self.extras_var.get() else []
         if full:
             fs = next((img for img in images if img["role"] == "filesystem"), None)
@@ -652,7 +755,7 @@ class InstallerApp(tk.Tk):
         save_config(self.config_data)
 
         package = dict(manifest, chip=target["chip"], url=target["url"],
-                       cache=re.sub(r"[^\w.-]+", "_", target["url"]).strip("_"))
+                       cache=cache_name(target["url"]), manifest=manifest)
         self.set_busy(True)
         self.tabs.select("Log")  # i messaggi del caricamento compaiono nel log
         self.progress["value"] = 0
@@ -671,7 +774,7 @@ class InstallerApp(tk.Tk):
         for img in images:
             path = cache / img["file"]
             expected = img.get("sha256")
-            if path.exists() and expected and sha256_of(path) == expected:
+            if is_cached(path, img):
                 self.events.put(("log", f"{img['file']}: già in cache"))
                 paths.append(path)
                 continue
@@ -692,6 +795,8 @@ class InstallerApp(tk.Tk):
                 raise RuntimeError(f"{img['file']}: checksum non valido, download corrotto")
             tmp.replace(path)
             paths.append(path)
+        # salvato solo a download riuscito: il manifest in cache descrive i file presenti
+        save_cached(cache / MANIFEST_FILE, json.dumps(package["manifest"], indent=2) + "\n")
         return paths
 
     def add_extras(self, images, paths, extras, work_dir):
