@@ -12,6 +12,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from i18n import tr
+
 if getattr(sys, "frozen", False):
     TOOLS_DIR = Path(sys._MEIPASS) / "tools"
 else:
@@ -47,32 +49,34 @@ def collect(sources):
         elif source.is_file():
             files[source.name] = source
         else:
-            raise RuntimeError(f"{source}: file o cartella non trovati")
+            raise RuntimeError(tr("{source}: file o cartella non trovati", source=source))
     return files
 
 
 def check_names(fs, files):
     for rel in files:
         if fs == "spiffs" and len("/" + rel) > SPIFFS_PATH_MAX:
-            raise RuntimeError(f"/{rel}: percorso troppo lungo per SPIFFS "
-                               f"(massimo {SPIFFS_PATH_MAX} caratteri, «/» compreso)")
+            raise RuntimeError(tr("/{rel}: percorso troppo lungo per SPIFFS "
+                                  "(massimo {max} caratteri, «/» compreso)",
+                                  rel=rel, max=SPIFFS_PATH_MAX))
         if fs == "littlefs":
             for part in rel.split("/"):
                 if len(part) > LITTLEFS_NAME_MAX:
-                    raise RuntimeError(f"{part}: nome troppo lungo per LittleFS "
-                                       f"(massimo {LITTLEFS_NAME_MAX} caratteri)")
+                    raise RuntimeError(tr("{part}: nome troppo lungo per LittleFS "
+                                          "(massimo {max} caratteri)",
+                                          part=part, max=LITTLEFS_NAME_MAX))
 
 
 def run_tool(fs, *args, cwd=None):
     tool = TOOLS_DIR / TOOLS[fs]
     if not tool.exists():
-        raise RuntimeError(f"manca {tool}")
+        raise RuntimeError(tr("manca {tool}", tool=tool))
     result = subprocess.run([str(tool), *args], capture_output=True, text=True, cwd=cwd,
                             errors="replace", creationflags=NO_WINDOW)
     output = (result.stdout + result.stderr).strip()
     if result.returncode != 0:
         tail = "\n".join(output.splitlines()[-6:])
-        raise RuntimeError(f"{TOOLS[fs]} non riuscito:\n{tail}")
+        raise RuntimeError(tr("{tool} non riuscito:\n{tail}", tool=TOOLS[fs], tail=tail))
     return output
 
 
@@ -85,10 +89,11 @@ def add_files(image, sources, work_dir):
     image, work_dir = Path(image), Path(work_dir)
     fs = fs_type(image.name)
     if fs is None:
-        raise RuntimeError(f"{image.name}: filesystem non riconosciuto (attesi LittleFS o SPIFFS)")
+        raise RuntimeError(tr("{image}: filesystem non riconosciuto (attesi LittleFS o SPIFFS)",
+                              image=image.name))
     files = collect(sources)
     if not files:
-        raise RuntimeError("nessun file da aggiungere")
+        raise RuntimeError(tr("nessun file da aggiungere"))
     check_names(fs, files)
 
     size = str(image.stat().st_size)
@@ -102,7 +107,7 @@ def add_files(image, sources, work_dir):
     changes = []
     for rel, source in files.items():
         target = content / rel
-        changes.append((rel, "sostituito" if target.exists() else "aggiunto"))
+        changes.append((rel, tr("sostituito") if target.exists() else tr("aggiunto")))
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
 
@@ -111,6 +116,7 @@ def add_files(image, sources, work_dir):
         run_tool(fs, "-c", content.name, *params, output.name, cwd=work_dir)
     except RuntimeError as e:
         total = sum(p.stat().st_size for p in content.rglob("*") if p.is_file())
-        raise RuntimeError(f"{e}\n\nI file occupano {total // 1024} KB su "
-                           f"{int(size) // 1024} KB del filesystem: forse non ci stanno.") from None
+        raise RuntimeError(f"{e}\n\n" + tr("I file occupano {used} KB su {size} KB del "
+                                           "filesystem: forse non ci stanno.",
+                                           used=total // 1024, size=int(size) // 1024)) from None
     return output, changes

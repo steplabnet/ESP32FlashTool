@@ -93,3 +93,64 @@ Eseguire `build_exe.bat`: crea `dist\ST_ESP32_flash_tool.exe` e
 `dist\ST_ESP32_manifest_creator.exe`, file unici che non richiedono Python e
 possono essere copiati su qualsiasi PC Windows.
 I driver USB-seriale della scheda (CP210x / CH340) vanno installati a parte.
+
+## Lingua
+
+Il flash tool è in italiano o in inglese: si sceglie in **Opzioni → Lingua / Language**
+(cambia subito, senza riavvio) e viene salvata in `config.json`. Al primo avvio vale la
+lingua di Windows (italiano se Windows è in italiano, altrimenti inglese). I testi sono in
+`i18n.py`; `python i18n.py` controlla che ogni testo abbia la traduzione inglese.
+Il manifest creator resta in italiano.
+
+## Chiave di attivazione
+
+Il flash tool carica l'elenco firmware solo con una chiave di attivazione
+(`XXXX-XXXX-XXXX-XXXX`, chiesta al primo avvio o con **Aggiungi…** nel riquadro **Licenza** della scheda **Opzioni**). Ogni
+chiave è un file `https://drive.steplab.net/esp32/<CHIAVE>.json` con il server firmware predefinito:
+
+```json
+{"server_url": "http://100.42.178.156/init", "name": "Nome cliente"}
+```
+
+Si possono salvare più chiavi, una per cliente: l'elenco **Licenza** (scheda **Opzioni**) mostra `nome — chiave` e,
+scegliendone una, il programma passa al suo server e ricarica l'elenco firmware. **Rimuovi**
+toglie la chiave in uso da questo PC. Un server scelto a mano vale solo per la chiave con cui è
+stato scelto. In `config.json`: `keys` (elenco delle chiavi) e `activation_key` (quella in uso);
+il `config.json` delle versioni con una sola chiave viene convertito da solo.
+
+All'avvio, dopo la verifica degli aggiornamenti, il programma rilegge i file di tutte le chiavi:
+se il `server_url` della chiave in uso è cambiato (e l'utente non ha scelto a mano un altro
+server) ricarica l'elenco. Senza connessione usa l'ultimo server noto. Se il file non esiste più
+la chiave non è valida: il programma la toglie dall'elenco (se era in uso passa a un'altra, o ne
+chiede una nuova). I file `.json` non vanno in cache sul CDN, quindi modifiche e revoche valgono
+subito.
+
+Le chiavi si gestiscono con il **license tool** (`license_tool.py`, `dist\ST_ESP32_license_tool.exe`):
+nome del cliente e server firmware → **Crea e carica** carica `<CHIAVE>.json` via SFTP
+(`storage.bunnycdn.com`, cartella `esp32/`), lo verifica dall'URL pubblico e copia la chiave negli
+appunti; una copia resta in `keys\` accanto al programma. L'elenco mostra le licenze sul server;
+**Revoca…** cancella il file della chiave scelta. La password SFTP viene chiesta al primo uso e
+salvata in `%APPDATA%\ST_ESP32_license_tool\config.json`.
+
+In alternativa, da riga di comando (file in `dist\keys\`, da copiare a mano sul server):
+
+```
+.venv\Scripts\python activation.py http://100.42.178.156/init "Nome cliente"
+```
+
+## Aggiornamento automatico del flash tool
+
+All'avvio, se c'è connessione, il flash tool legge
+`https://drive.steplab.net/esp32/ST_ESP32_flash_tool.json` (`updater.py`); se la versione
+indicata è più recente della sua (`VERSION` in `installer.py`) propone **Scarica** o **Salta**.
+Scaricato e verificato con sha256, il nuovo eseguibile sostituisce quello in uso e il
+programma si riavvia; se la cartella del programma non è scrivibile viene salvato in Download.
+
+Per pubblicare una nuova versione:
+1. aumentare `VERSION` in `installer.py`;
+2. eseguire `build_exe.bat`, che crea anche `dist\ST_ESP32_flash_tool_<versione>.exe` e
+   `dist\ST_ESP32_flash_tool.json` (versione, nome del file, dimensione, sha256; il campo
+   `notes`, facoltativo, compare nel messaggio);
+3. copiare in `https://drive.steplab.net/esp32/` prima `ST_ESP32_flash_tool_<versione>.exe`,
+   poi `ST_ESP32_flash_tool.json`. Ogni versione deve avere il suo nome di file: il CDN tiene
+   in cache gli `.exe` per 30 giorni, quindi un file sovrascritto verrebbe servito vecchio.

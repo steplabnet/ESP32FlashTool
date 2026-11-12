@@ -13,6 +13,7 @@ from esptool.cmds import detect_flash_size, reset_chip
 from esptool.logger import TemplateLogger, log
 
 import catalog
+from i18n import tr
 
 DETECT_BAUD = 115200
 
@@ -92,15 +93,17 @@ def is_connect_error(error):
     return bool(re.search(r"Failed to connect|No serial data received", error or "", re.I))
 
 
-def connect_hint(error, button="Carica firmware", baud_tip=True):
+def connect_hint(error, button=None, baud_tip=True):
+    """Consiglio per l'errore; button è il pulsante da premere (default "Carica firmware")."""
     if not is_connect_error(error):
-        return "Controlla connessione, cavo e porta."
-    return ("L'ESP32 non è entrato in modalità programmazione: alcune schede non "
-            "ci entrano da sole e vanno avviate a mano.\n\n"
-            "1. Controlla che la porta sia quella della scheda.\n"
-            "2. Tieni premuto BOOT (IO0), premi e rilascia RESET (EN), poi rilascia BOOT.\n"
-            f"3. Premi subito \"{button}\"."
-            + ("\n\nSe non funziona ancora, prova la velocità 115200." if baud_tip else ""))
+        return tr("Controlla connessione, cavo e porta.")
+    return (tr("L'ESP32 non è entrato in modalità programmazione: alcune schede non "
+               "ci entrano da sole e vanno avviate a mano.\n\n"
+               "1. Controlla che la porta sia quella della scheda.\n"
+               "2. Tieni premuto BOOT (IO0), premi e rilascia RESET (EN), poi rilascia BOOT.\n"
+               "3. Premi subito \"{button}\".", button=button or tr("Carica firmware"))
+            + ("\n\n" + tr("Se non funziona ancora, prova la velocità 115200.")
+               if baud_tip else ""))
 
 
 def detect(port):
@@ -156,13 +159,13 @@ class QueueLogger(TemplateLogger):
             self.events.put(("erasing", None))
 
     def note(self, message):
-        self.print(f"Nota: {message}")
+        self.print(tr("Nota: {message}", message=message))
 
     def warning(self, message):
-        self.print(f"Attenzione: {message}")
+        self.print(tr("Attenzione: {message}", message=message))
 
     def error(self, message):
-        self.print(f"Errore: {message}")
+        self.print(tr("Errore: {message}", message=message))
 
     def stage(self, finish=False):
         pass

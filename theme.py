@@ -31,6 +31,17 @@ import zlib
 from pathlib import Path
 from tkinter import font as tkfont, ttk
 
+
+def _t(text):
+    """Testi del tema (pulsanti delle finestre di dialogo): vedi set_translator()."""
+    return text
+
+
+def set_translator(function):
+    """function(testo italiano) -> testo nella lingua scelta, per i pulsanti dei dialoghi."""
+    global _t
+    _t = function
+
 LOGO_FILE = "logo-200x40-1.png"  # in basso a destra, vedi brand()
 WEBSITE = "www.steplab.net"
 
@@ -713,11 +724,12 @@ class Tabs(ttk.Frame):
         self.current = tk.StringVar()
         self.pages = {}
 
-    def add(self, name, scroll=True):
+    def add(self, name, scroll=True, text=None):
         """Nuova scheda; ritorna il riquadro in cui creare i widget della pagina.
 
         scroll: la pagina scorre se la finestra è troppo bassa; senza, il
         riquadro si allunga fino in fondo (per il log, che scorre da sé).
+        text: testo mostrato (default name); select() usa sempre name.
         """
         if scroll:
             page = ScrollArea(self)
@@ -726,7 +738,7 @@ class Tabs(ttk.Frame):
             page = content = ttk.Frame(self)
         page.grid(row=1, column=0, sticky="nsew")
         self.pages[name] = page
-        ttk.Radiobutton(self.bar, text=name, value=name, variable=self.current,
+        ttk.Radiobutton(self.bar, text=text or name, value=name, variable=self.current,
                         style="Selector.TRadiobutton", takefocus=False,
                         command=lambda: self.select(name)).pack(side="left")
         if len(self.pages) == 1:
@@ -888,7 +900,7 @@ class Dialog(tk.Toplevel):
     cancel è il valore di Esc e della chiusura. Il valore scelto va in result.
     """
 
-    def __init__(self, parent, title, buttons=(("Annulla", None), ("OK", True)), cancel=None):
+    def __init__(self, parent, title, buttons=None, cancel=None):
         parent = parent or tk._default_root
         super().__init__(parent)
         self.withdraw()  # nascosta finché non è al suo posto
@@ -899,6 +911,8 @@ class Dialog(tk.Toplevel):
         self.parent = parent
         self.result = None
         self.cancel = cancel
+        if buttons is None:
+            buttons = ((_t("Annulla"), None), (_t("OK"), True))
 
         # contenuto in alto, pulsanti di pari larghezza in una fascia separata
         body = ttk.Frame(self, padding=(24, 22, 24, 22))
@@ -975,31 +989,39 @@ class _Message(Dialog):
 
 
 def showinfo(title, message, parent=None):
-    return _Message(parent, title, message, "info", [("OK", "ok")], "ok").result
+    return _Message(parent, title, message, "info", [(_t("OK"), "ok")], "ok").result
 
 
 def showwarning(title, message, parent=None):
-    return _Message(parent, title, message, "warning", [("OK", "ok")], "ok").result
+    return _Message(parent, title, message, "warning", [(_t("OK"), "ok")], "ok").result
 
 
 def showerror(title, message, parent=None):
-    return _Message(parent, title, message, "error", [("OK", "ok")], "ok").result
+    return _Message(parent, title, message, "error", [(_t("OK"), "ok")], "ok").result
 
 
 def askyesno(title, message, parent=None):
-    return _Message(parent, title, message, "question", [("No", False), ("Sì", True)],
+    return _Message(parent, title, message, "question", [(_t("No"), False), (_t("Sì"), True)],
                     False).result
 
 
 def askyesnocancel(title, message, parent=None):
     """True, False, o None con Annulla."""
     return _Message(parent, title, message, "question",
-                    [("Annulla", None), ("No", False), ("Sì", True)], None).result
+                    [(_t("Annulla"), None), (_t("No"), False), (_t("Sì"), True)], None).result
 
 
 def askretrycancel(title, message, parent=None):
-    return _Message(parent, title, message, "warning", [("Annulla", False), ("Riprova", True)],
-                    False).result
+    return _Message(parent, title, message, "warning",
+                    [(_t("Annulla"), False), (_t("Riprova"), True)], False).result
+
+
+def ask(title, message, buttons, cancel=None, icon="question", parent=None):
+    """Messaggio con pulsanti a scelta: buttons [(testo, valore)], l'ultimo è il principale.
+
+    Ritorna il valore del pulsante premuto, cancel con Esc o chiudendo la finestra.
+    """
+    return _Message(parent, title, message, icon, buttons, cancel).result
 
 
 class _AskString(Dialog):

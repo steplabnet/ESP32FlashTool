@@ -23,6 +23,8 @@ import re
 from datetime import datetime
 from urllib.parse import urljoin
 
+from i18n import tr
+
 INDEX_FILE = "index.json"
 FORMAT = 1
 
@@ -118,10 +120,10 @@ def validate(catalog):
 def loads(text):
     catalog = json.loads(text)
     if not isinstance(catalog, dict) or not isinstance(catalog.get("products"), list):
-        raise ValueError(f"{INDEX_FILE} non valido: manca l'elenco 'products'")
+        raise ValueError(tr("{file} non valido: manca l'elenco 'products'", file=INDEX_FILE))
     if catalog.get("format", FORMAT) > FORMAT:
-        raise ValueError(f"{INDEX_FILE} creato da una versione più recente (formato "
-                         f"{catalog['format']}): aggiorna il programma")
+        raise ValueError(tr("{file} creato da una versione più recente (formato {format}): "
+                            "aggiorna il programma", file=INDEX_FILE, format=catalog["format"]))
     return catalog
 
 
